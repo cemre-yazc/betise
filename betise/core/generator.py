@@ -51,13 +51,7 @@ class TimeSeriesGenerator:
             if abs(val) >= exclusion_lower and abs(val) <= exclusion_upper:
                 coefs.append(val)
         return np.array(coefs)
-
-    def z_normalize(self, series):
-        mean = np.mean(series)
-        std = np.std(series)
-        if std == 0:
-            return series - mean
-        return (series - mean) / std
+        
 
     #BASE DISTRIBUTIONS STATIONARY
 
@@ -247,184 +241,8 @@ class TimeSeriesGenerator:
         series = series + np.random.normal(0,noise_std,length)
         return series, info
 
-    def generate_sarima_params(self, p_range=(1, 3), d_range=(0, 1), q_range=(1, 3), P_range=(1, 3), Q_range=(1, 3), D_range=(0,1), coef_range = (-0.9,0.9)):
-        while True:
-            p = np.random.randint(p_range[0], p_range[1] + 1)
-            d = np.random.randint(d_range[0], d_range[1] + 1)
-            q = np.random.randint(q_range[0], q_range[1] + 1)
 
-            if d == 0:
-                D = 1
-            else:
-                D = np.random.randint(D_range[0], D_range[1] + 1)
-            
-            P = np.random.randint(P_range[0], P_range[1] + 1)
-            Q = np.random.randint(Q_range[0], Q_range[1] + 1)
-            valid_periods = [s for s in [5, 7, 12, 24, 30, 52, 90, 180] if self.length // 12 <= s <= self.length // 4]
-            if not valid_periods:
-                continue
-            s = random.choice(valid_periods)
-
-            ar_params = self.generate_nonzero_coefs(p, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if p > 0 else np.array([])
-            ma_params = self.generate_nonzero_coefs(q, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if q > 0 else np.array([])
-            seasonal_ar_params = self.generate_nonzero_coefs(P, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if P > 0 else np.array([])
-            seasonal_ma_params = self.generate_nonzero_coefs(Q, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if Q > 0 else np.array([])
-
-            if (self.is_stationary(ar_params) and self.is_invertible(ma_params) and
-                self.is_stationary(seasonal_ar_params) and self.is_invertible(seasonal_ma_params)):
-
-                arma_params = np.concatenate([ar_params, ma_params, seasonal_ar_params, seasonal_ma_params])
-                return (p, d, q), (P, D, Q, s), arma_params
-
-    def generate_sarima_series(self, length, max_attempts=10, noise_std=None, noise_scale=0.3):
-        self.length = length
-        noise_std = noise_std if noise_std is not None else np.random.uniform(0.1, 1.5)
-        attempts = 0
-        while attempts < max_attempts:
-            try:
-                order, seasonal_order, arma_params = self.generate_sarima_params()
-                p, d, q = order
-                P, D, Q, s = seasonal_order
-                period = s
-                warmup = max(8 * s, 200)
-
-                # Skip overly complex models
-                if (p + q + P + Q) > 6:
-                    continue
-
-                # Skip unstable or uninteresting coefficient sets
-                if np.sum(np.abs(arma_params)) < 0.6 or np.max(np.abs(arma_params)) > 0.6:
-                    continue
-
-                variance_param = np.array([1.0])
-                full_params = np.concatenate([arma_params, variance_param])
-
-                # Use stationary initialization to avoid diffuse Kalman filter transient
-                endog_dummy = np.zeros(length + warmup)
-                model = SARIMAX(
-                    endog=endog_dummy,
-                    order=order,
-                    seasonal_order=seasonal_order,
-                    enforce_stationarity=False,
-                    enforce_invertibility=False,
-                    initialization='approximate_diffuse')
-
-                series = model.simulate(params=full_params, nsimulations=length + warmup,
-                                        initial_state=np.zeros(model.k_states))
-                series = series[warmup:]
-
-                if (np.std(series[-length//2:]) < 0.05 or np.max(np.abs(series)) < 0.3):
-                    print("Flat or decaying series — discarded")
-                    print(f"Order: {order}, Seasonal Order: {seasonal_order}")
-                    print("Coefficients:", arma_params)
-                    continue
-
-                # Reject series whose first 15% has >3x higher std than the stable middle
-                head_std   = np.std(series[:length // 7])
-                middle_std = np.std(series[length // 4: 3 * length // 4])
-                if middle_std > 0 and head_std > 3.0 * middle_std:
-                    continue
-
-                series += np.random.normal(0, noise_std * 0.2, length)
-                series = self.z_normalize(series)
-                info = {'type': 'seasonal', 'subtype': 'SARIMA', 'periods': [period], 'ar_order':p, 'ma_order':q, 'diff':d, 'seasonal_ar_order':P, 'seasonal_ma_order': Q, 'seasonal_diff': D, 'coefs': arma_params}
-                return series, info
-
-            except (ValueError, np.linalg.LinAlgError):
-                attempts += 1
-                print(f"Attempt {attempts}/{max_attempts} failed. Retrying...")
-
-        print("SARIMA generation failed. Returning None.")
-        return None, None  # Return None on failure
-
-    def generate_sarma_params(self, p_range=(1, 3), q_range=(1, 3), P_range=(1, 3), Q_range=(1, 3), coef_range = (-0.9,0.9)):
-        while True:
-            p = np.random.randint(p_range[0], p_range[1] + 1)
-            q = np.random.randint(q_range[0], q_range[1] + 1)
-            d = 0
-
-            P = np.random.randint(P_range[0], P_range[1] + 1)
-            Q = np.random.randint(Q_range[0], Q_range[1] + 1)
-            D = 0
-            valid_periods = [s for s in [5, 7, 12, 24, 30, 52, 90, 180] if self.length // 12 <= s <= self.length // 4]
-            if not valid_periods:
-                continue
-            s = random.choice(valid_periods)
-
-            ar_params = self.generate_nonzero_coefs(p, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if p > 0 else np.array([])
-            ma_params = self.generate_nonzero_coefs(q, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if q > 0 else np.array([])
-            seasonal_ar_params = self.generate_nonzero_coefs(P, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if P > 0 else np.array([])
-            seasonal_ma_params = self.generate_nonzero_coefs(Q, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if Q > 0 else np.array([])
-
-            if (self.is_stationary(ar_params) and self.is_invertible(ma_params) and
-                self.is_stationary(seasonal_ar_params) and self.is_invertible(seasonal_ma_params)):
-
-                arma_params = np.concatenate([ar_params, ma_params, seasonal_ar_params, seasonal_ma_params])
-                return (p, d, q), (P, D, Q, s), arma_params
-
-    def generate_sarma_series(self, length, max_attempts=10, noise_std=None, noise_scale=0.3):
-        self.length = length
-        noise_std = noise_std if noise_std is not None else np.random.uniform(0.1, 1.5)
-        attempts = 0
-        while attempts < max_attempts:
-            try:
-                order, seasonal_order, arma_params = self.generate_sarma_params()
-                p, d, q = order
-                P, D, Q, s = seasonal_order
-                period = s
-                warmup = max(8 * s, 200)
-
-                # Skip overly complex models
-                if (p + q + P + Q) > 6:
-                    continue
-
-                # Skip unstable or uninteresting coefficient sets
-                if np.sum(np.abs(arma_params)) < 0.6 or np.max(np.abs(arma_params)) > 0.6:
-                    continue
-
-                variance_param = np.array([1.0])
-                full_params = np.concatenate([arma_params, variance_param])
-
-                # Use stationary initialization to avoid diffuse Kalman filter transient
-                endog_dummy = np.zeros(length + warmup)
-                model = SARIMAX(
-                    endog=endog_dummy,
-                    order=order,
-                    seasonal_order=seasonal_order,
-                    enforce_stationarity=False,
-                    enforce_invertibility=False,
-                    initialization='approximate_diffuse')
-
-                series = model.simulate(params=full_params, nsimulations=length + warmup,
-                                        initial_state=np.zeros(model.k_states))
-                series = series[warmup:]
-
-                # Post-filter flat or unrealistic series
-                if (np.std(series[-length//2:]) < 0.05 or np.max(np.abs(series)) < 0.3):
-                    print("Flat or decaying series — discarded")
-                    print(f"Order: {order}, Seasonal Order: {seasonal_order}")
-                    print("Coefficients:", arma_params)
-                    continue
-
-                # Reject series whose first 15% has >3x higher std than the stable middle
-                head_std   = np.std(series[:length // 7])
-                middle_std = np.std(series[length // 4: 3 * length // 4])
-                if middle_std > 0 and head_std > 3.0 * middle_std:
-                    continue
-
-                series += np.random.normal(0, noise_std * 0.2, length)
-                series = self.z_normalize(series)
-                info = {'type': 'seasonal', 'subtype': 'SARMA', 'periods': [period], 'ar_order':p, 'ma_order':q, 'diff':d, 'seasonal_ar_order':P, 'seasonal_ma_order': Q, 'seasonal_diff': D, 'coefs': arma_params}
-                return series, info
-
-            except (ValueError, np.linalg.LinAlgError):
-                attempts += 1
-                print(f"Attempt {attempts}/{max_attempts} failed. Retrying...")
-
-        print("SARMA generation failed. Returning None.")
-        return None, None  # Return None on failure
-
-
+    
     def generate_arch_series(self, length, alpha_range=(0.5, 0.9), omega_range=(0.1, 0.3), cumulative=False, scale_factor=1):
         alpha = np.random.uniform(*alpha_range)
         omega = np.random.uniform(*omega_range)
@@ -1205,85 +1023,631 @@ class TimeSeriesGenerator:
         })
         return df, info
 
-    #SEASONALITY
+    # PERIOD HELPERS
 
-    def generate_single_seasonality(self, df, period=None, amplitude=None, noise_std=None, scale_factor = 1):
-        series = np.random.normal(loc=0.0, scale=0.2, size=self.length)
-        n=len(series)
+    def get_calendar_periods(self):
+        """
+        Calendar-meaningful seasonal periods for different sampling frequencies.
+        Period always means: number of observations per cycle.
+        """
+        return {
+            "monthly": {
+                3: "quarterly cycle",
+                6: "semiannual cycle",
+                12: "annual cycle"
+            },
+            "quarterly": {
+                4: "annual cycle"
+            },
+            "daily": {
+                7: "weekly cycle",
+                30: "monthly-ish cycle",
+                90: "quarterly-ish cycle",
+                180: "semiannual-ish cycle",
+                365: "annual cycle"
+            },
+            "weekly": {
+                4: "monthly-ish cycle",
+                13: "quarterly cycle",
+                26: "semiannual cycle",
+                52: "annual cycle"
+            },
+            "business_daily": {
+                5: "weekly cycle",
+                21: "monthly-ish cycle",
+                63: "quarterly-ish cycle",
+                126: "semiannual-ish cycle",
+                252: "annual-ish cycle"
+            },
+            "hourly": {
+                24: "daily cycle",
+                168: "weekly cycle"
+            }
+        }
+
+    def get_all_calendar_periods(self):
+        calendar_periods = self.get_calendar_periods()
+
+        all_periods = sorted(
+            set(
+                period
+                for sampling_dict in calendar_periods.values()
+                for period in sampling_dict.keys()
+            )
+        )
+
+        return all_periods
+
+    def get_period_meanings(self, period):
+        """
+        Returns all possible calendar interpretations of a period.
+        Example:
+            period=4 can mean:
+            - quarterly data: annual cycle
+            - weekly data: monthly-ish cycle
+        """
+        calendar_periods = self.get_calendar_periods()
+        meanings = []
+
+        for sampling_frequency, period_dict in calendar_periods.items():
+            if period in period_dict:
+                meanings.append({
+                    "sampling_frequency": sampling_frequency,
+                    "meaning": period_dict[period]
+                })
+
+        return meanings
+
+    def get_valid_calendar_periods(
+        self,
+        allowed_periods=None,
+        min_cycles=6
+    ):
+        """
+        Filters periods according to series length.
+
+        min_cycles=6 means:
+            selected period should appear at least about 6 times in the series.
+        """
+        n = self.length
+
+        if allowed_periods is None:
+            allowed_periods = self.get_all_calendar_periods()
+
+        allowed_periods = sorted(set(int(p) for p in allowed_periods))
+
+        max_period = n // min_cycles
+
+        valid_periods = [
+            p for p in allowed_periods
+            if p <= max_period
+        ]
+
+        return valid_periods
+
+    def choose_calendar_period(
+        self,
+        period=None,
+        allowed_periods=None,
+        min_cycles=6
+    ):
+        """
+        Chooses or validates a period using calendar-meaningful periods.
+        """
+        n = self.length
+
+        if allowed_periods is None:
+            allowed_periods = self.get_all_calendar_periods()
+
+        allowed_periods = sorted(set(int(p) for p in allowed_periods))
+        valid_periods = self.get_valid_calendar_periods(
+            allowed_periods=allowed_periods,
+            min_cycles=min_cycles
+        )
+
+        if len(valid_periods) == 0:
+            raise ValueError(
+                f"No valid period found for length={n}. "
+                f"Allowed periods are {allowed_periods}, but min_cycles={min_cycles} requires period <= {n // min_cycles}."
+            )
+
+        if period is None:
+            period = random.choice(valid_periods)
+        else:
+            period = int(period)
+
+            if period not in allowed_periods:
+                raise ValueError(
+                    f"period={period} is not in allowed calendar periods: {allowed_periods}"
+                )
+
+            if period not in valid_periods:
+                raise ValueError(
+                    f"period={period} is too large for length={n} with min_cycles={min_cycles}. "
+                    f"Valid periods are {valid_periods}."
+                )
+
+        return period, valid_periods
+
+    def normalize_period_list(self, periods):
+        """
+        Converts period input into a list.
+        """
+        if periods is None:
+            return None
+
+        if isinstance(periods, (int, np.integer)):
+            return [int(periods)]
+
+        return [int(p) for p in periods]
+
+# SEASONALITY
+
+    def generate_single_seasonality(
+        self,
+        period=None,
+        amplitude=None,
+        noise_std=None,
+        scale_factor=1,
+        num_harmonics=1,
+        allowed_periods=None,
+        min_cycles=6
+    ):
+        n = self.length
+        t = np.arange(n)
+
+        series = np.random.normal(loc=0.0, scale=0.2, size=n)
+
         noise_std = noise_std if noise_std is not None else np.random.uniform(0.01, 0.05)
-        min_period = 5  
-        max_period = len(series) // 6  # Ensure at least 6 cycles
-        periods = [p for p in [5, 7, 12, 24, 30, 52, 90, 180] if min_period <= p <= max_period]
-        period = period if period is not None else random.choice(periods)
-        amplitude = amplitude if amplitude is not None else np.std(series) * np.random.uniform(0.5, 2.5)
-        seasonality = (amplitude * np.sin(2 * np.pi * np.arange(n) / period) + np.random.normal(0, noise_std, size = n))
+
+        period, valid_periods = self.choose_calendar_period(
+            period=period,
+            allowed_periods=allowed_periods,
+            min_cycles=min_cycles
+        )
+
+        base_std = np.std(series)
+        amplitude = amplitude if amplitude is not None else base_std * np.random.uniform(0.5, 2.5)
+
+        seasonality = np.zeros(n)
+        coefficients = []
+
+        for k in range(1, num_harmonics + 1):
+            A_k = amplitude * np.random.uniform(0.5, 1.0) / k
+            B_k = amplitude * np.random.uniform(0.5, 1.0) / k
+
+            seasonality += A_k * np.sin(2 * np.pi * k * t / period)
+            seasonality += B_k * np.cos(2 * np.pi * k * t / period)
+
+            coefficients.append({
+                "harmonic": k,
+                "sin_coef": A_k,
+                "cos_coef": B_k
+            })
+
+        seasonality += np.random.normal(0, noise_std, size=n)
+
         series += seasonality * scale_factor
-        info = {'type': 'seasonal', 'subtype': 'single_seasonality', 'periods': [period], 'amplitude': amplitude}
-        df.loc[:,'data'] = series
-        df.loc[:,'stationary'] = 0
-        df.loc[:, 'seasonal'] = 1
-        df.loc[:,'single_seas'] = 1
-        return df, info
 
-    def generate_multiple_seasonality(self, df, num_components=2, periods=None, amplitudes=None, noise_std=None, scale_factor=3):
-        series = np.random.normal(loc=0.0, scale=0.2, size=self.length)
-        n = len(series)
+        df = pd.DataFrame({
+            "time": np.arange(n),
+            "data": series,
+            "stationary": np.zeros(n).astype(int),
+            "seasonal": np.ones(n).astype(int),
+            "single_seas": np.ones(n).astype(int)
+        })
+
+        info = {
+            "type": "seasonal",
+            "subtype": "single_seasonality",
+            "periods": [period],
+            "period_meanings": {
+                period: self.get_period_meanings(period)
+            },
+            "amplitude": amplitude,
+            "noise_std": noise_std,
+            "scale_factor": scale_factor,
+            "num_harmonics": num_harmonics,
+            "coefficients": coefficients
+        }
+
+        return df, info
+    
+    def generate_multiple_seasonality(
+        self,
+        num_components=2,
+        periods=None,
+        amplitudes=None,
+        noise_std=None,
+        scale_factor=3,
+        num_harmonics=1,
+        allowed_periods=None,
+        min_cycles=6
+    ):
+        n = self.length
+        t = np.arange(n)
+
+        series = np.random.normal(loc=0.0, scale=0.2, size=n)
 
         noise_std = noise_std if noise_std is not None else np.random.uniform(0.01, 0.05)
-        info = {'type': 'seasonal', 'subtype': 'multiple_seasonality'}
-        min_period = 5  
-        max_period = len(series) // 6
-        valid_periods = [p for p in [5, 7, 12, 24, 30, 52, 90, 180] if min_period <= p <= max_period]
-        periods_meta = []
-        amplitudes_meta = []
+
+        if allowed_periods is None:
+            allowed_periods = self.get_all_calendar_periods()
+
+        allowed_periods = sorted(set(int(p) for p in allowed_periods))
+
+        valid_periods = self.get_valid_calendar_periods(
+            allowed_periods=allowed_periods,
+            min_cycles=min_cycles
+        )
+
+        if len(valid_periods) < 2 and periods is None:
+            raise ValueError(
+                f"Multiple seasonality needs at least 2 valid periods. "
+                f"For length={n}, valid periods are {valid_periods}."
+            )
+
+        periods = self.normalize_period_list(periods)
 
         if periods is None:
-            periods = random.sample(valid_periods, min(num_components, len(valid_periods)))
+            periods = random.sample(
+                valid_periods,
+                min(num_components, len(valid_periods))
+            )
+        else:
+            for p in periods:
+                if p not in allowed_periods:
+                    raise ValueError(
+                        f"period={p} is not in allowed calendar periods: {allowed_periods}"
+                    )
+
+                if p not in valid_periods:
+                    raise ValueError(
+                        f"period={p} is too large for length={n} with min_cycles={min_cycles}. "
+                        f"Valid periods are {valid_periods}."
+                    )
+
+            if len(periods) < 2:
+                raise ValueError(
+                    "Multiple seasonality should have at least 2 periods. "
+                    "Pass something like periods=[7, 30] or periods=[12, 24]."
+                )
 
         if amplitudes is None:
             base_std = np.std(series)
-            amplitudes = [base_std * np.random.uniform(0.5, 2.0) for _ in periods]
+            amplitudes = [
+                base_std * np.random.uniform(0.5, 2.0)
+                for _ in periods
+            ]
+        else:
+            if len(amplitudes) != len(periods):
+                raise ValueError(
+                    f"Length of amplitudes must match length of periods. "
+                    f"Got {len(amplitudes)} amplitudes and {len(periods)} periods."
+                )
 
-        for i, (period, amplitude) in enumerate(zip(periods, amplitudes), start = 1 ):
-            seasonal_component = amplitude * np.sin(2 * np.pi * np.arange(len(series)) / period)
-            seasonal_component += np.random.normal(0, noise_std, size=len(series))
-            series += seasonal_component * scale_factor
+        seasonality = np.zeros(n)
+
+        periods_meta = []
+        amplitudes_meta = []
+        coefficients_meta = []
+
+        for period, amplitude in zip(periods, amplitudes):
+            period_coefficients = []
+
+            for k in range(1, num_harmonics + 1):
+                A_k = amplitude * np.random.uniform(0.5, 1.0) / k
+                B_k = amplitude * np.random.uniform(0.5, 1.0) / k
+
+                seasonality += A_k * np.sin(2 * np.pi * k * t / period)
+                seasonality += B_k * np.cos(2 * np.pi * k * t / period)
+
+                period_coefficients.append({
+                    "harmonic": k,
+                    "sin_coef": A_k,
+                    "cos_coef": B_k
+                })
+
             periods_meta.append(period)
             amplitudes_meta.append(amplitude)
+            coefficients_meta.append({
+                "period": period,
+                "coefficients": period_coefficients
+            })
 
-        info['periods'] = periods_meta
-        info['amplitudes'] = amplitudes_meta
+        seasonality += np.random.normal(0, noise_std, size=n)
 
-        df.loc[:, 'data'] = series
-        df.loc[:, 'multiple_seas'] = 1
-        df.loc[:,'stationary'] = 0
-        df.loc[:, 'seasonal'] = 1
-        return df, info
+        series += seasonality * scale_factor
 
-
-    def generate_seasonality_from_base_series(self, kind = None, num_components = 2):
         df = pd.DataFrame({
-            'time': np.arange(self.length),
-            'data': np.ones(self.length),
-            'stationary': (np.zeros(self.length)).astype(int)
+            "time": np.arange(n),
+            "data": series,
+            "stationary": np.zeros(n).astype(int),
+            "seasonal": np.ones(n).astype(int),
+            "multiple_seas": np.ones(n).astype(int)
         })
 
-        if kind == 'single':
-            df, info = self.generate_single_seasonality(df)
-        if kind == 'multiple':
-            df, info = self.generate_multiple_seasonality(df = df, num_components = num_components)
-        if kind == 'sarma':
-            series, info = self.generate_sarma_series(self.length)
-            if series is None: return None, None # Hata yakalama
-            df.loc[:, 'data'] = series
-            df.loc[:, 'seasonal_base'] = 1
-            df.loc[:, 'seasonal'] = 1
-        if kind == 'sarima':
-            series, info = self.generate_sarima_series(self.length)
-            if series is None: return None, None # Hata yakalama
-            df.loc[:, 'data'] = series
-            df.loc[:, 'seasonal_base'] = 1
-            df.loc[:, 'seasonal'] = 1
+        info = {
+            "type": "seasonal",
+            "subtype": "multiple_seasonality",
+            "periods": periods_meta,
+            "period_meanings": {
+                p: self.get_period_meanings(p)
+                for p in periods_meta
+            },
+            "amplitudes": amplitudes_meta,
+            "noise_std": noise_std,
+            "scale_factor": scale_factor,
+            "num_harmonics": num_harmonics,
+            "coefficients": coefficients_meta
+        }
+
+        return df, info
+
+    def generate_sarima_series(
+        self,
+        period=None,
+        amplitude=None,
+        noise_std=None,
+        scale_factor=1,
+        initial_std=0.2,
+        num_harmonics=1,
+        allowed_periods=None,
+        min_cycles=6
+    ):
+        """
+        Seasonal unit root case with deterministic Fourier seasonal difference.
+
+        Model:
+            Y_t - Y_{t-s} = Fourier(t) + noise
+        """
+
+        n = self.length
+        t = np.arange(n)
+
+        period, _ = self.choose_calendar_period(
+            period=period,
+            allowed_periods=allowed_periods,
+            min_cycles=min_cycles
+        )
+
+        if n <= period:
+            raise ValueError("Series length must be larger than the seasonal period.")
+
+        noise_std = noise_std if noise_std is not None else np.random.uniform(0.1, 0.20)
+
+        if amplitude is None:
+            base_series = np.random.normal(loc=0.0, scale=0.2, size=n)
+            amplitude = np.std(base_series) * np.random.uniform(0.5, 2.5)
+
+        seasonal_difference = np.zeros(n)
+        coefficients = []
+
+        for k in range(1, num_harmonics + 1):
+            A_k = amplitude * np.random.uniform(0.5, 1.0) / k
+            B_k = amplitude * np.random.uniform(0.5, 1.0) / k
+
+            seasonal_difference += A_k * np.sin(2 * np.pi * k * t / period)
+            seasonal_difference += B_k * np.cos(2 * np.pi * k * t / period)
+
+            coefficients.append({
+                "harmonic": k,
+                "sin_coef": A_k,
+                "cos_coef": B_k
+            })
+
+        seasonal_difference += np.random.normal(0, noise_std, size=n)
+        seasonal_difference = seasonal_difference * scale_factor
+
+        series = np.zeros(n)
+        series[:period] = np.random.normal(0, initial_std, size=period)
+
+        for i in range(period, n):
+            series[i] = series[i - period] + seasonal_difference[i]
+
+        actual_seasonal_difference = np.full(n, np.nan)
+        actual_seasonal_difference[period:] = series[period:] - series[:-period]
+
+        df = pd.DataFrame({
+            "time": np.arange(n),
+            "data": series,
+            "seasonal_diff": actual_seasonal_difference,
+            "stationary": np.zeros(n).astype(int),
+            "seasonal": np.ones(n).astype(int),
+            "sarima": np.ones(n).astype(int)
+        })
+
+        info = {
+            "type": "seasonal",
+            "subtype": "SARIMA",
+            "periods": [period],
+            "period_meanings": {
+                period: self.get_period_meanings(period)
+            },
+            "diff": 0,
+            "seasonal_diff": 1,
+            "unit_root": "seasonal_unit_root",
+            "amplitude": amplitude,
+            "noise_std": noise_std,
+            "scale_factor": scale_factor,
+            "initial_std": initial_std,
+            "num_harmonics": num_harmonics,
+            "coefficients": coefficients
+        }
+
+        return df, info
+
+    def generate_deterministic_sarma_series(
+        self,
+        period=None,
+        amplitude=None,
+        noise_std=None,
+        scale_factor=1,
+        error_scale=None,
+        num_harmonics=1,
+        order_range=(1, 2),
+        seasonal_order_range=(1, 1),
+        coef_range=(-0.4, 0.4),
+        seasonal_coef_range=(-0.4, 0.4),
+        allowed_periods=None,
+        min_cycles=6,
+        max_attempts=1000
+    ):
+        """
+        Generates a SARMA-like seasonal series with deterministic seasonality.
+
+        Model:
+            Y_t = f_t + u_t + e_t
+
+        where:
+            f_t = deterministic Fourier seasonality
+            u_t = stationary SARMA error process
+            e_t = small observation noise
+
+        There is no unit root and no differencing.
+        """
+
+        n = self.length
+        t = np.arange(n)
+
+        period, _ = self.choose_calendar_period(
+            period=period,
+            allowed_periods=allowed_periods,
+            min_cycles=min_cycles
+        )
+
+        s = period
+
+        if amplitude is None:
+            base_series = np.random.normal(loc=0.0, scale=0.2, size=n)
+            amplitude = np.std(base_series) * np.random.uniform(0.8, 2.5)
+
+        deterministic_seasonality = np.zeros(n)
+        fourier_coefficients = []
+
+        for k in range(1, num_harmonics + 1):
+            A_k = amplitude * np.random.uniform(0.5, 1.0) / k
+            B_k = amplitude * np.random.uniform(0.5, 1.0) / k
+
+            deterministic_seasonality += A_k * np.sin(2 * np.pi * k * t / s)
+            deterministic_seasonality += B_k * np.cos(2 * np.pi * k * t / s)
+
+            fourier_coefficients.append({
+                "harmonic": k,
+                "sin_coef": A_k,
+                "cos_coef": B_k
+            })
+
+        deterministic_seasonality = deterministic_seasonality * scale_factor
+
+        sarma_error = None
+
+        for _ in range(max_attempts):
+            ar_order = np.random.randint(order_range[0], order_range[1] + 1)
+            ma_order = np.random.randint(order_range[0], order_range[1] + 1)
+
+            seasonal_ar_order = np.random.randint(
+                seasonal_order_range[0],
+                seasonal_order_range[1] + 1
+            )
+            seasonal_ma_order = np.random.randint(
+                seasonal_order_range[0],
+                seasonal_order_range[1] + 1
+            )
+
+            ar_coefs = np.random.uniform(coef_range[0], coef_range[1], ar_order)
+            ma_coefs = np.random.uniform(coef_range[0], coef_range[1], ma_order)
+
+            seasonal_ar_coefs = np.random.uniform(
+                seasonal_coef_range[0],
+                seasonal_coef_range[1],
+                seasonal_ar_order
+            )
+
+            seasonal_ma_coefs = np.random.uniform(
+                seasonal_coef_range[0],
+                seasonal_coef_range[1],
+                seasonal_ma_order
+            )
+
+            nonseasonal_ar = np.r_[1, -ar_coefs]
+            nonseasonal_ma = np.r_[1, ma_coefs]
+
+            seasonal_ar = np.zeros(seasonal_ar_order * s + 1)
+            seasonal_ar[0] = 1
+            for i, coef in enumerate(seasonal_ar_coefs, start=1):
+                seasonal_ar[i * s] = -coef
+
+            seasonal_ma = np.zeros(seasonal_ma_order * s + 1)
+            seasonal_ma[0] = 1
+            for i, coef in enumerate(seasonal_ma_coefs, start=1):
+                seasonal_ma[i * s] = coef
+
+            ar_poly = np.convolve(nonseasonal_ar, seasonal_ar)
+            ma_poly = np.convolve(nonseasonal_ma, seasonal_ma)
+
+            arma_process = ArmaProcess(ar_poly, ma_poly)
+
+            if arma_process.isstationary and arma_process.isinvertible:
+                burnin = max(200, 8 * s)
+
+                sarma_error = arma_process.generate_sample(
+                    nsample=n,
+                    burnin=burnin,
+                    scale=1.0
+                )
+
+                error_std = np.std(sarma_error)
+                if error_std > 1e-8:
+                    sarma_error = (sarma_error - np.mean(sarma_error)) / error_std
+
+                break
+
+        if sarma_error is None:
+            raise RuntimeError("Could not generate valid stationary SARMA error.")
+
+        if error_scale is None:
+            error_scale = amplitude * np.random.uniform(0.25, 0.60)
+
+        sarma_error = sarma_error * error_scale
+
+        noise_std = noise_std if noise_std is not None else np.random.uniform(0.01, 0.05)
+        observation_noise = np.random.normal(0, noise_std, size=n)
+
+        series = deterministic_seasonality + sarma_error + observation_noise
+
+        df = pd.DataFrame({
+            "time": np.arange(n),
+            "data": series,
+            "stationary": np.zeros(n).astype(int),
+            "seasonal": np.ones(n).astype(int),
+            "sarma": np.ones(n).astype(int)
+        })
+
+        info = {
+            "type": "seasonal",
+            "subtype": "SARMA",
+            "periods": [s],
+            "period_meanings": {
+                s: self.get_period_meanings(s)
+            },
+            "diff": 0,
+            "seasonal_diff": 0,
+            "unit_root": "none",
+            "amplitude": amplitude,
+            "noise_std": noise_std,
+            "scale_factor": scale_factor,
+            "num_harmonics": num_harmonics,
+            "fourier_coefficients": fourier_coefficients,
+            "ar_order": ar_order,
+            "ma_order": ma_order,
+            "seasonal_ar_order": seasonal_ar_order,
+            "seasonal_ma_order": seasonal_ma_order,
+            "ar_coefs": ar_coefs,
+            "ma_coefs": ma_coefs,
+            "seasonal_ar_coefs": seasonal_ar_coefs,
+            "seasonal_ma_coefs": seasonal_ma_coefs
+        }
 
         return df, info
 
@@ -1307,6 +1671,60 @@ class TimeSeriesGenerator:
         })
         return df, info
 
+
+    def generate_seasonality_from_base_series(
+        self,
+        kind=None,
+        num_components=2,
+        period=None
+    ):
+        """
+        Generates seasonal base series from scratch.
+
+        kind:
+            "single"   -> deterministic single Fourier seasonality
+            "multiple" -> deterministic multiple Fourier seasonality
+            "sarima"   -> seasonal unit root:
+                          Y_t - Y_{t-s} = Fourier(t) + noise
+            "sarma"    -> deterministic Fourier seasonality with SARMA errors
+        """
+
+        if kind is None:
+            kind = random.choice(["single", "multiple", "sarma", "sarima"])
+
+        if kind == "single":
+            df, info = self.generate_single_seasonality(
+                period=period,
+                num_harmonics=1
+            )
+
+        elif kind == "multiple":
+            periods = self.normalize_period_list(period)
+
+            df, info = self.generate_multiple_seasonality(
+                num_components=num_components,
+                periods=periods,
+                num_harmonics=1
+            )
+
+        elif kind == "sarima":
+            df, info = self.generate_sarima_series(
+                period=period,
+                num_harmonics=1
+            )
+
+        elif kind == "sarma":
+            df, info = self.generate_deterministic_sarma_series(
+                period=period,
+                num_harmonics=1
+            )
+
+        else:
+            raise ValueError(
+                "Invalid kind. Choose from 'single', 'multiple', 'sarma' or 'sarima'."
+            )
+
+        return df, info
 
     #STRUCTURAL BREAKS
     
