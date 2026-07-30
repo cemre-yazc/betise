@@ -339,7 +339,7 @@ class TimeSeriesGenerator:
 
     #ANOMALIES    
 
-    def generate_point_anomaly(self, df, location=None, scale_factor=1, is_spike=True):
+    def generate_point_anomaly(self, df, location=None, scale_factor=1, is_spike=True, is_loc = None):
         series = df['data'].copy()
         n = len(series)
         num_anomalies = 1
@@ -377,9 +377,15 @@ class TimeSeriesGenerator:
         df.loc[:, 'data'] = series
         df.loc[:, 'stationary'] = 0
         df.loc[:, 'point_anom_single'] = 1
+
+        if is_loc:
+            point_anom_label = np.zeros(n, dtype=int)
+            point_anom_label[anomaly_indices] = 1
+            df.loc[:, "point_anom_label"] = point_anom_label
+
         return df, info
 
-    def generate_point_anomalies(self, df, scale_factor=1):
+    def generate_point_anomalies(self, df, scale_factor=1,is_loc=None):
         series = df['data'].copy()
         n = len(series)
 
@@ -421,6 +427,12 @@ class TimeSeriesGenerator:
         df.loc[:, 'data'] = series
         df.loc[:, 'stationary'] = 0
         df.loc[:, 'point_anom_multi'] = 1
+
+        if is_loc:
+            point_anom_label = np.zeros(n, dtype=int)
+            point_anom_label[anomaly_indices] = 1
+            df.loc[:, "point_anom_label"] = point_anom_label
+
         return df, info
 
     def generate_collective_anomalies(
@@ -432,7 +444,8 @@ class TimeSeriesGenerator:
         anomaly_shapes="rectangular",
         edge_margin=0.05,
         min_distance=0.10,
-        max_attempts=1000
+        max_attempts=1000,
+        is_loc = None,
     ):
         series = df["data"].copy()
         original_series = series.copy()
@@ -671,13 +684,15 @@ class TimeSeriesGenerator:
             elif config["method"] == "baseline":
                 segment = series.iloc[start:end].to_numpy()
 
-                # Instead of using only one point before/after the anomaly,
-                # use the local median around the boundary.
-                # This prevents the anomaly from starting from a random spike.
                 baseline_window = max(5, int(0.03 * n))
 
-                before_segment = series.iloc[max(0, start - baseline_window):start]
-                after_segment = series.iloc[end:min(n, end + baseline_window)]
+                before_segment = series.iloc[
+                    max(0, start - baseline_window):start
+                ]
+
+                after_segment = series.iloc[
+                    end:min(n, end + baseline_window)
+                ]
 
                 if len(before_segment) > 0:
                     baseline_start = np.median(before_segment)
@@ -689,15 +704,28 @@ class TimeSeriesGenerator:
                 else:
                     baseline_end = series.iloc[end - 1]
 
-                baseline = np.linspace(baseline_start, baseline_end, length)
+                baseline = np.linspace(
+                    baseline_start,
+                    baseline_end,
+                    length
+                )
 
-                segment_trend = np.linspace(segment[0], segment[-1], length)
+                segment_trend = np.linspace(
+                    segment[0],
+                    segment[-1],
+                    length
+                )
+
                 residual = segment - segment_trend
-
                 residual_weight = config["residual_weight"]
 
-                series.iloc[start:end] = baseline + residual_weight * residual + anomaly_pattern
-            
+                series.iloc[start:end] = (
+                    baseline
+                    + residual_weight * residual
+                    + anomaly_pattern
+                )
+
+            # Record the anomaly after it has been created
             records.append({
                 "start": start,
                 "end": end,
@@ -707,14 +735,41 @@ class TimeSeriesGenerator:
                 "length": length
             })
 
-        records = sorted(records, key=lambda item: item["start"])
+        # This part must be outside the anomaly_shapes loop
+        records = sorted(
+            records,
+            key=lambda item: item["start"]
+        )
 
-        selected_starts = np.array([item["start"] for item in records])
-        ends = np.array([item["end"] for item in records])
-        shapes_used = [item["shape"] for item in records]
-        magnitudes = [item["magnitude"] for item in records]
-        lengths = [item["length"] for item in records]
-        magnitude_strengths = [item["magnitude_strength"] for item in records]
+        selected_starts = np.array(
+            [item["start"] for item in records],
+            dtype=int
+        )
+
+        ends = np.array(
+            [item["end"] for item in records],
+            dtype=int
+        )
+
+        shapes_used = [
+            item["shape"]
+            for item in records
+        ]
+
+        magnitudes = [
+            item["magnitude"]
+            for item in records
+        ]
+
+        lengths = [
+            item["length"]
+            for item in records
+        ]
+
+        magnitude_strengths = [
+            item["magnitude_strength"]
+            for item in records
+        ]
 
         info = {
             "type": "anomaly",
@@ -733,86 +788,204 @@ class TimeSeriesGenerator:
         df.loc[:, "stationary"] = 0
         df.loc[:, "collect_anom"] = 1
 
+        if is_loc is True:
+            collect_anom_label = np.zeros(
+                n,
+                dtype=int
+            )
+
+            for record in records:
+                start = int(record["start"])
+                end = int(record["end"])
+
+                collect_anom_label[start:end] = 1
+
+            df.loc[:, "collect_anom_label"] = (
+                collect_anom_label
+            )
+
         return df, info
     
-    def generate_contextual_anomalies(self, df, num_anomalies=1, location=None, scale_factor=1,
-                                  anomaly_strength=1, seasonal_period=None, max_attempts=10):    
-        series_original = df['data'].copy()
+    def generate_contextual_anomalies(
+        self,
+        df,
+        num_anomalies=1,
+        location=None,
+        scale_factor=1,
+        anomaly_strength=1,
+        seasonal_period=None,
+        max_attempts=10,
+        is_loc=None
+    ):
+        series_original = df["data"].copy()
         n = len(series_original)
-        info = []
 
         for attempt in range(max_attempts):
-            min_distance = max(1, int((0.05 - attempt * 0.003) * n))  # gradually relax
+            min_distance = max(
+                1,
+                int((0.05 - attempt * 0.003) * n)
+            )
+
             series = series_original.copy()
+
+            # These are the selected peak/valley center points.
             selected_starts = []
-            ends = []
+
+            # These store the actual anomaly intervals.
+            anomaly_intervals = []
 
             # Decide the seasonal period
             if seasonal_period is not None:
                 period = seasonal_period
                 generate_seasonality = False
             else:
-                min_period = max(5, n // 20)  # slightly more lenient lower bound
+                min_period = max(5, n // 20)
                 max_period = n // 6
+
                 allowed = [5, 7, 12, 24, 30, 52, 90, 180]
-                periods = [p for p in allowed if min_period <= p <= max_period]
+
+                periods = [
+                    p for p in allowed
+                    if min_period <= p <= max_period
+                ]
+
                 if not periods:
-                    continue  # try again
+                    continue
+
                 period = random.choice(periods)
                 generate_seasonality = True
 
             # Generate or estimate seasonality
             if generate_seasonality:
-                amplitude = np.std(series) * np.random.uniform(1.5, 3)
-                seasonality = amplitude * np.sin(2 * np.pi * np.arange(n) / period)
-                series += seasonality * scale_factor
-            else:
-                seasonality = np.sin(2 * np.pi * np.arange(n) / period)
+                amplitude = (
+                    np.std(series)
+                    * np.random.uniform(1.5, 3)
+                )
 
-            # Find contextual points from clean sine wave
-            pure_seasonality = np.sin(2 * np.pi * np.arange(n) / period)
-            peaks = np.where((pure_seasonality[1:-1] > pure_seasonality[:-2]) &
-                         (pure_seasonality[1:-1] > pure_seasonality[2:]))[0] + 1
-            valleys = np.where((pure_seasonality[1:-1] < pure_seasonality[:-2]) &
-                           (pure_seasonality[1:-1] < pure_seasonality[2:]))[0] + 1
-            candidate_indices = np.concatenate([peaks, valleys])
+                seasonality = (
+                    amplitude
+                    * np.sin(
+                        2 * np.pi * np.arange(n) / period
+                    )
+                )
+
+                series += seasonality * scale_factor
+
+            else:
+                seasonality = np.sin(
+                    2 * np.pi * np.arange(n) / period
+                )
+
+            # Find contextual points from a clean sine wave
+            pure_seasonality = np.sin(
+                2 * np.pi * np.arange(n) / period
+            )
+
+            peaks = np.where(
+                (
+                    pure_seasonality[1:-1]
+                    > pure_seasonality[:-2]
+                )
+                &
+                (
+                    pure_seasonality[1:-1]
+                    > pure_seasonality[2:]
+                )
+            )[0] + 1
+
+            valleys = np.where(
+                (
+                    pure_seasonality[1:-1]
+                    < pure_seasonality[:-2]
+                )
+                &
+                (
+                    pure_seasonality[1:-1]
+                    < pure_seasonality[2:]
+                )
+            )[0] + 1
+
+            candidate_indices = np.concatenate(
+                [peaks, valleys]
+            )
 
             # Determine candidate regions
             if num_anomalies == 1:
                 if location == "beginning":
-                    candidate_range = np.arange(int(0.1 * n), int(0.3 * n))
-                elif location == "middle":
-                    candidate_range = np.arange(int(0.4 * n), int(0.6 * n))
-                elif location == "end":
-                    candidate_range = np.arange(int(0.7 * n), int(0.9 * n))
-                else:
-                    candidate_range = np.arange(int(0.1 * n), int(0.85 * n))
-                    location = 'none'
-            else:
-                candidate_range = np.arange(int(0.1 * n), int(0.85 * n))
-                location = 'none'
+                    candidate_range = np.arange(
+                        int(0.1 * n),
+                        int(0.3 * n)
+                    )
 
-            candidate_indices = np.array([i for i in candidate_indices if i in candidate_range])
+                elif location == "middle":
+                    candidate_range = np.arange(
+                        int(0.4 * n),
+                        int(0.6 * n)
+                    )
+
+                elif location == "end":
+                    candidate_range = np.arange(
+                        int(0.7 * n),
+                        int(0.9 * n)
+                    )
+
+                else:
+                    candidate_range = np.arange(
+                        int(0.1 * n),
+                        int(0.85 * n)
+                    )
+
+                    location = "none"
+
+            else:
+                candidate_range = np.arange(
+                    int(0.1 * n),
+                    int(0.85 * n)
+                )
+
+                location = "none"
+
+            candidate_indices = np.array([
+                i
+                for i in candidate_indices
+                if i in candidate_range
+            ])
 
             if len(candidate_indices) == 0:
-                print(f"[Attempt {attempt+1}] No candidates found for n={n}, period={period}")
+                print(
+                    f"[Attempt {attempt + 1}] "
+                    f"No candidates found for "
+                    f"n={n}, period={period}"
+                )
                 continue
 
-            # Try to select num_anomalies with spacing
+            # Select anomaly centers with spacing
             candidates = candidate_indices.copy()
             np.random.shuffle(candidates)
+
             for center in candidates:
-                if all(abs(center - prev) >= min_distance for prev in selected_starts):
+                if all(
+                    abs(center - previous_center)
+                    >= min_distance
+                    for previous_center in selected_starts
+                ):
                     selected_starts.append(center)
+
                 if len(selected_starts) == num_anomalies:
                     break
 
-            # If still not enough, just fill the rest from remaining candidates (ignore spacing)
+            # Fill remaining anomalies without spacing if necessary
             if len(selected_starts) < num_anomalies:
-                remaining = list(set(candidate_indices) - set(selected_starts))
+                remaining = list(
+                    set(candidate_indices)
+                    - set(selected_starts)
+                )
+
                 np.random.shuffle(remaining)
+
                 for center in remaining:
                     selected_starts.append(center)
+
                     if len(selected_starts) == num_anomalies:
                         break
 
@@ -821,35 +994,89 @@ class TimeSeriesGenerator:
 
             # Apply contextual anomalies
             for center in selected_starts:
-                anomaly_length = min(max(int(period * 0.5), 10), int(0.2 * n))  # safe max
-                start = max(0, center - anomaly_length // 2)
-                end = min(n, start + anomaly_length)
-                ends.append(end)
+                anomaly_length = min(
+                    max(int(period * 0.5), 10),
+                    int(0.2 * n)
+                )
+
+                start = max(
+                    0,
+                    center - anomaly_length // 2
+                )
+
+                end = min(
+                    n,
+                    start + anomaly_length
+                )
+
+                # Store the actual anomaly interval.
+                anomaly_intervals.append((start, end))
 
                 local_season = seasonality[start:end]
-                series[start:end] -= 2 * local_season * anomaly_strength  # FLIP!
 
-            # Success — break retry loop
+                series.iloc[start:end] -= (
+                    2
+                    * local_season
+                    * anomaly_strength
+                )
+
+            # Successful generation
             break
+
         else:
-            # Tüm denemeler başarısız olduysa, orijinal df'i ve None info'yu döndür
-            print(f"generate_contextual_anomalies failed for n={n}")
-            return df, None 
+            print(
+                f"generate_contextual_anomalies "
+                f"failed for n={n}"
+            )
 
-        info = {'type': 'anomaly', 'subtype': 'contextual','num_anomalies': num_anomalies, 'location': location}
-        
-        # Labeling
-        selected_starts = np.sort(selected_starts)
-        ends = np.sort(ends)
-        info['starts'] = selected_starts
-        info['ends'] = ends
-        
-        df.loc[:, 'data'] = series
-        df.loc[:, 'stationary'] = 0
-        df.loc[:, 'context_anom'] = 1
-        df.loc[:, 'seasonal'] = 1
+            return df, None
+
+        # Sort anomaly intervals according to their start positions
+        anomaly_intervals = sorted(
+            anomaly_intervals,
+            key=lambda interval: interval[0]
+        )
+
+        anomaly_starts = np.array([
+            start
+            for start, end in anomaly_intervals
+        ])
+
+        anomaly_ends = np.array([
+            end
+            for start, end in anomaly_intervals
+        ])
+
+        info = {
+            "type": "anomaly",
+            "subtype": "contextual",
+            "num_anomalies": len(anomaly_intervals),
+            "location": location,
+            "starts": anomaly_starts,
+            "ends": anomaly_ends
+        }
+
+        df.loc[:, "data"] = series
+        df.loc[:, "stationary"] = 0
+        df.loc[:, "context_anom"] = 1
+        df.loc[:, "seasonal"] = 1
+
+        # Create location labels only when requested
+        if is_loc is True:
+            context_anom_label = np.zeros(
+                n,
+                dtype=int
+            )
+
+            for start, end in anomaly_intervals:
+                context_anom_label[start:end] = 1
+
+            df.loc[
+                :,
+                "context_anom_label"
+            ] = context_anom_label
+
         return df, info
-
 
     #TRENDS - DETERMINISTIC TRENDS
 
@@ -1729,7 +1956,7 @@ class TimeSeriesGenerator:
     #STRUCTURAL BREAKS
     
     def generate_mean_shift(self, df, num_breaks=1, scale_factor=1, signs=None, location=None, 
-                            noise_std=None, seasonal_period=None, slope=None, intercept=None):
+                            noise_std=None, seasonal_period=None, slope=None, intercept=None, is_loc=None):
         series = df['data'].copy()
         n = len(series)
         noise_std = noise_std if noise_std is not None else np.random.uniform(0.01, 0.05)
@@ -1815,13 +2042,35 @@ class TimeSeriesGenerator:
 
         df.loc[:,'data'] = series
         df.loc[:,'stationary'] = 0
+
+        if is_loc is True:
+            mean_shift_label = np.zeros(n, dtype=int)
+
+            for regime_number, break_point in enumerate(
+                sorted(created_breaks),
+                start=1
+            ):
+                mean_shift_label[break_point:] = regime_number
+
+            df.loc[:, "mean_shift_label"] = mean_shift_label
+
         return df, info
 
-
-    def generate_variance_shift(self, df, num_breaks=1, scale_factor=1, signs=None, location=None, 
-                                seasonal_period=None, slope=None, intercept=None):
-        series = df['data'].copy()
+    def generate_variance_shift(
+        self,
+        df,
+        num_breaks=1,
+        scale_factor=1,
+        signs=None,
+        location=None,
+        seasonal_period=None,
+        slope=None,
+        intercept=None,
+        is_loc=None
+    ):
+        series = df["data"].copy()
         n = len(series)
+
         min_distance = 0.1 * n
         created_breaks = []
         variance_change_factors = []
@@ -1837,187 +2086,423 @@ class TimeSeriesGenerator:
                 residual_component = series.copy()
 
         elif isinstance(seasonal_period, int):
-            stl = STL(series, period=seasonal_period, robust=True)
+            stl = STL(
+                series,
+                period=seasonal_period,
+                robust=True
+            )
             result = stl.fit()
+
             trend_component = result.trend
             seasonal_component = result.seasonal
             residual_component = result.resid
 
         elif isinstance(seasonal_period, (list, tuple)):
-            mstl = MSTL(series, periods=seasonal_period)
+            mstl = MSTL(
+                series,
+                periods=seasonal_period
+            )
             result = mstl.fit()
+
             trend_component = result.trend
             seasonal_component = result.seasonal
             residual_component = result.resid
 
         else:
-            raise ValueError("seasonal_period must be None, an int, or a list/tuple of ints.")
+            raise ValueError(
+                "seasonal_period must be None, "
+                "an int, or a list/tuple of ints."
+            )
 
-        if num_breaks == 1 and location in ["beginning", "middle", "end"]:
+        # Decide break points
+        if (
+            num_breaks == 1
+            and location in ["beginning", "middle", "end"]
+        ):
             if location == "beginning":
-                break_points = [np.random.randint(int(0.1 * n), int(0.3 * n))]
+                break_points = [
+                    np.random.randint(
+                        int(0.1 * n),
+                        int(0.3 * n)
+                    )
+                ]
+
             elif location == "middle":
-                break_points = [np.random.randint(int(0.4 * n), int(0.6 * n))]
+                break_points = [
+                    np.random.randint(
+                        int(0.4 * n),
+                        int(0.6 * n)
+                    )
+                ]
+
             elif location == "end":
-                break_points = [np.random.randint(int(0.7 * n), int(0.9 * n))]
+                break_points = [
+                    np.random.randint(
+                        int(0.7 * n),
+                        int(0.9 * n)
+                    )
+                ]
+
         else:
-            candidates = np.arange(int(0.1 * n), int(0.9 * n))
+            candidates = np.arange(
+                int(0.1 * n),
+                int(0.9 * n)
+            )
+
             break_points = []
-            while len(break_points) < num_breaks and len(candidates) > 0:
+
+            while (
+                len(break_points) < num_breaks
+                and len(candidates) > 0
+            ):
                 point = np.random.choice(candidates)
+
                 if isinstance(seasonal_period, int):
                     phase = point % seasonal_period
                     point -= phase
-                elif isinstance(seasonal_period, (list, tuple)):
+
+                elif isinstance(
+                    seasonal_period,
+                    (list, tuple)
+                ):
                     sp = np.random.choice(seasonal_period)
                     phase = point % sp
                     point -= phase
+
                 if point not in break_points:
                     break_points.append(point)
-                    candidates = candidates[np.abs(candidates - point) >= min_distance]
+
+                    candidates = candidates[
+                        np.abs(candidates - point)
+                        >= min_distance
+                    ]
+
             break_points = sorted(break_points)
 
         if signs is None or len(signs) != len(break_points):
-            raise ValueError("signs must be a list with the same length as the number of breaks.")
+            raise ValueError(
+                "signs must be a list with the same "
+                "length as the number of breaks."
+            )
 
-        info = {'type': 'structural_break', 'subtype': 'variance_shift', 'num_breaks':num_breaks, 'location' : location}
-        
+        info = {
+            "type": "structural_break",
+            "subtype": "variance_shift",
+            "num_breaks": len(break_points),
+            "location": location
+        }
+
+        # Apply variance shifts
         for i, break_point in enumerate(break_points):
             variance_factor = np.random.uniform(1.5, 3)
             variance_change_factors.append(variance_factor)
-            if signs[i] > 0:
-                residual_component[break_point:] *= variance_factor * scale_factor
-            elif signs[i] < 0:
-                residual_component[break_point:] /= variance_factor * scale_factor
-            created_breaks.append((break_point))
 
+            if signs[i] > 0:
+                residual_component[break_point:] *= (
+                    variance_factor * scale_factor
+                )
+
+            elif signs[i] < 0:
+                residual_component[break_point:] /= (
+                    variance_factor * scale_factor
+                )
+
+            created_breaks.append(break_point)
+
+        # Reconstruct series
         if seasonal_period is None:
-            series = trend_component + residual_component
+            series = (
+                trend_component
+                + residual_component
+            )
 
         elif isinstance(seasonal_period, int):
-            series = trend_component + seasonal_component + residual_component
+            series = (
+                trend_component
+                + seasonal_component
+                + residual_component
+            )
 
         elif isinstance(seasonal_period, (list, tuple)):
-            series = trend_component + seasonal_component.sum(axis=1) + residual_component
+            series = (
+                trend_component
+                + seasonal_component.sum(axis=1)
+                + residual_component
+            )
 
-        info['shift_indices'] = created_breaks
-        info['shift_magnitudes'] = variance_change_factors
-        
-        df.loc[:,'data'] = series
-        df.loc[:,'stationary'] = 0
+        info["shift_indices"] = created_breaks
+        info["shift_magnitudes"] = variance_change_factors
+
+        df.loc[:, "data"] = series
+        df.loc[:, "stationary"] = 0
+
+        # Create structural-break regime labels only when requested
+        if is_loc is True:
+            variance_shift_label = np.zeros(
+                n,
+                dtype=int
+            )
+
+            for regime_number, break_point in enumerate(
+                sorted(created_breaks),
+                start=1
+            ):
+                variance_shift_label[
+                    break_point:
+                ] = regime_number
+
+            df.loc[
+                :,
+                "variance_shift_label"
+            ] = variance_shift_label
+
         return df, info
 
-    def generate_trend_shift(self, df, location="middle", num_breaks=1, scale_factor = 1, change_types=None,
-                            slope=None, intercept=None, seasonal_period=None, noise_std=None):
-        series = df['data'].copy()
+    def generate_trend_shift(
+        self,
+        df,
+        location="middle",
+        num_breaks=1,
+        scale_factor=1,
+        change_types=None,
+        slope=None,
+        intercept=None,
+        seasonal_period=None,
+        noise_std=None,
+        is_loc=None
+    ):
+        series = df["data"].copy()
         n = len(series)
+
         min_distance = 0.1 * n
-        noise_std = noise_std if noise_std is not None else np.random.uniform(0.01, 0.05)
+
+        noise_std = (
+            noise_std
+            if noise_std is not None
+            else np.random.uniform(0.01, 0.05)
+        )
+
         created_breaks = []
         created_change_types = []
 
         if slope is None or intercept is None:
-            raise ValueError("slope and intercept must be provided trend shift.")
+            raise ValueError(
+                "slope and intercept must be provided for trend shift."
+            )
 
         if seasonal_period is None:
             original_trend = intercept + slope * np.arange(n)
             residual_component = series - original_trend
 
         elif isinstance(seasonal_period, int):
-            stl = STL(series, period=seasonal_period, robust=True)
+            stl = STL(
+                series,
+                period=seasonal_period,
+                robust=True
+            )
             result = stl.fit()
 
             seasonal_component = result.seasonal
             residual_component = result.resid
 
         elif isinstance(seasonal_period, (list, tuple)):
-            mstl = MSTL(series, periods=seasonal_period)
+            mstl = MSTL(
+                series,
+                periods=seasonal_period
+            )
             result = mstl.fit()
 
             seasonal_component = result.seasonal
             residual_component = result.resid
 
         else:
-            raise ValueError("seasonal_period must be None, an int, or a list/tuple of ints.")
+            raise ValueError(
+                "seasonal_period must be None, "
+                "an int, or a list/tuple of ints."
+            )
 
         # Decide break points
-        if num_breaks == 1 and location in ["beginning", "middle", "end"]:
+        if (
+            num_breaks == 1
+            and location in ["beginning", "middle", "end"]
+        ):
             if location == "beginning":
-                break_points = [np.random.randint(int(0.1 * n), int(0.3 * n))]
+                break_points = [
+                    np.random.randint(
+                        int(0.1 * n),
+                        int(0.3 * n)
+                    )
+                ]
+
             elif location == "middle":
-                break_points = [np.random.randint(int(0.4 * n), int(0.6 * n))]
+                break_points = [
+                    np.random.randint(
+                        int(0.4 * n),
+                        int(0.6 * n)
+                    )
+                ]
+
             elif location == "end":
-                break_points = [np.random.randint(int(0.7 * n), int(0.9 * n))]
+                break_points = [
+                    np.random.randint(
+                        int(0.7 * n),
+                        int(0.9 * n)
+                    )
+                ]
+
         else:
-            candidates = np.arange(int(0.1 * n), int(0.9 * n))
+            candidates = np.arange(
+                int(0.1 * n),
+                int(0.9 * n)
+            )
+
             break_points = []
-            while len(break_points) < num_breaks and len(candidates) > 0:
+
+            while (
+                len(break_points) < num_breaks
+                and len(candidates) > 0
+            ):
                 point = np.random.choice(candidates)
-                if isinstance(seasonal_period, int): #buraya bak bir 
+
+                if isinstance(seasonal_period, int):
                     phase = point % seasonal_period
                     point -= phase
+
                 elif isinstance(seasonal_period, (list, tuple)):
                     sp = np.random.choice(seasonal_period)
                     phase = point % sp
                     point -= phase
+
                 if point not in break_points:
                     break_points.append(point)
-                    candidates = candidates[np.abs(candidates - point) >= min_distance]
-            break_points = sorted(break_points)
-    
-        # Validate change_types input
-        if change_types is None or len(change_types) != len(break_points):
-            raise ValueError("change_types must be a list with the same length as the number of breaks.")
 
+                    candidates = candidates[
+                        np.abs(candidates - point)
+                        >= min_distance
+                    ]
+
+            break_points = sorted(break_points)
+
+        # Validate change_types input
+        if (
+            change_types is None
+            or len(change_types) != len(break_points)
+        ):
+            raise ValueError(
+                "change_types must be a list with the same "
+                "length as the number of breaks."
+            )
 
         # Initialize trend array
         current_slope = slope
         current_level = intercept
+
         trend = np.zeros(n)
         prev_point = 0
 
-        info = {'type': 'structural_break', 'subtype': 'trend_shift', 'num_breaks': num_breaks, 'location' :location}
-        
-        for i, break_point in enumerate(break_points + [n]):  # Include end of series
+        info = {
+            "type": "structural_break",
+            "subtype": "trend_shift",
+            "num_breaks": len(break_points),
+            "location": location
+        }
+
+        # Construct piecewise trend
+        for i, break_point in enumerate(break_points + [n]):
             slope_change_factor = np.random.uniform(1.5, 4.5)
             segment_length = break_point - prev_point
+
             if segment_length > 0:
-                segment_trend = current_level + current_slope * np.arange(segment_length)
+                segment_trend = (
+                    current_level
+                    + current_slope * np.arange(segment_length)
+                )
+
                 trend[prev_point:break_point] = segment_trend
                 current_level = segment_trend[-1]
-    
+
             if break_point == n:
                 break
-    
+
             change_type = change_types[i]
-    
-            if change_type == 'direction_change':
+
+            if change_type == "direction_change":
                 current_slope = -current_slope
-            elif change_type == 'magnitude_change':
-                current_slope = current_slope * slope_change_factor * scale_factor
-            elif change_type == 'direction_and_magnitude_change':
-                current_slope = -current_slope * slope_change_factor * scale_factor
+
+            elif change_type == "magnitude_change":
+                current_slope = (
+                    current_slope
+                    * slope_change_factor
+                    * scale_factor
+                )
+
+            elif change_type == "direction_and_magnitude_change":
+                current_slope = (
+                    -current_slope
+                    * slope_change_factor
+                    * scale_factor
+                )
+
             else:
-                raise ValueError("Invalid change_type: " + str(change_type))
-    
+                raise ValueError(
+                    "Invalid change_type: "
+                    + str(change_type)
+                )
+
             created_breaks.append(break_point)
             created_change_types.append(change_type)
             prev_point = break_point
 
-        info['shift_indices'] = created_breaks
-        info['shift_types'] = created_change_types
-    
+        info["shift_indices"] = created_breaks
+        info["shift_types"] = created_change_types
+
+        # Reconstruct series
+        noise = np.random.normal(
+            0,
+            noise_std,
+            size=n
+        )
 
         if seasonal_period is None:
-            series = trend + residual_component + np.random.normal(0, noise_std, size=n)
+            series = (
+                trend
+                + residual_component
+                + noise
+            )
 
         elif isinstance(seasonal_period, int):
-            series = trend + seasonal_component + residual_component + np.random.normal(0, noise_std, size=n)
+            series = (
+                trend
+                + seasonal_component
+                + residual_component
+                + noise
+            )
 
         elif isinstance(seasonal_period, (list, tuple)):
-            series = trend + seasonal_component.sum(axis=1) + residual_component + np.random.normal(0, noise_std, size=n)   
-    
+            series = (
+                trend
+                + seasonal_component.sum(axis=1)
+                + residual_component
+                + noise
+            )
+
         # Update dataframe
-        df.loc[:, 'data'] = series
-        df.loc[:, 'stationary'] = 0
+        df.loc[:, "data"] = series
+        df.loc[:, "stationary"] = 0
+
+        # Create structural-break regime labels only when requested
+        if is_loc is True:
+            trend_shift_label = np.zeros(
+                n,
+                dtype=int
+            )
+
+            for regime_number, break_point in enumerate(
+                sorted(created_breaks),
+                start=1
+            ):
+                trend_shift_label[break_point:] = regime_number
+
+            df.loc[:, "trend_shift_label"] = trend_shift_label
+
         return df, info
