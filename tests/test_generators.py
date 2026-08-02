@@ -56,6 +56,12 @@ def test_volatility(base):
     _check(_gen(base), base)
 
 
+# ── Fractional ────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("base", ["arfima"])
+def test_fractional(base):
+    _check(_gen(base), base)
+
+
 # ── Multiple series ───────────────────────────────────────────────────────────
 def test_multiple_series():
     cfg = load_config(dataset={

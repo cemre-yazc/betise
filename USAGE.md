@@ -34,6 +34,7 @@ Every generation starts with a **base series**. The base defines the core statis
 | | `"garch"` | GARCH(1,1) |
 | | `"egarch"` | Exponential GARCH |
 | | `"aparch"` | Asymmetric Power ARCH |
+| **Fractional** | `"arfima"` | ARFIMA(p,d,q) — Fractional integration with long memory |
 
 > **Rule:** Exactly **one** base is selected per generation run via `dataset.base_series`.
 

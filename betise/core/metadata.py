@@ -58,6 +58,13 @@ def create_metadata_record(
     volatility_lambda=None,
     volatility_gamma=None,
     volatility_delta=None,
+    # === FRACTIONAL ===
+    fractional_type=None,
+    fractional_integrated=None,
+    long_memory=None,
+    d_parameter=None,
+    ar_order=None,
+    ma_order=None,
     # === ANOMALY ===
     anomaly_type=None,
     anomaly_shapes=None,
@@ -133,6 +140,13 @@ def create_metadata_record(
         "volatility_lambda": volatility_lambda,
         "volatility_gamma": volatility_gamma,
         "volatility_delta": volatility_delta,
+        # === Fractional ===
+        "fractional_type": fractional_type,
+        "fractional_integrated": fractional_integrated,
+        "long_memory": long_memory,
+        "d_parameter": d_parameter,
+        "ar_order": ar_order,
+        "ma_order": ma_order,
         # === Anomaly ===
         "anomaly_type": anomaly_type,
         "anomaly_count": anomaly_count,

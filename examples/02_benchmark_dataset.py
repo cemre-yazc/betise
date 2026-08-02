@@ -2,7 +2,7 @@
 BeTiSe Benchmark Dataset
 =========================
 
-Generates a balanced benchmark covering all 15 base process types across three
+Generates a balanced benchmark covering all 16 base process types across three
 series-length buckets. No feature overlays — pure base processes only. Use this
 as a reproducible baseline for comparing models or algorithms across process
 types and lengths.
@@ -16,7 +16,7 @@ Output layout:
     ma/  ...
     (one subfolder per base type)
 
-Total: 15 types × 3 buckets × 11 series = 495 series
+Total: 16 types × 3 buckets × 11 series = 528 series
 
 Run:
     python examples/02_benchmark_dataset.py
@@ -52,6 +52,7 @@ BASE_TYPES = [
     "garch",
     "egarch",
     "aparch",
+    "arfima",
 ]
 
 ALL_FEATURES_OFF = {

@@ -134,3 +134,76 @@ Action: Boxed {\<one label from the allowed set above\>}
 | (d) multiple seasonality | (e) multiple point anomalies | (f) multiple collective anomalies |
 | ![Multiple mean shifts](docs/appendix-figures/multi_mean_shift.png) | ![Multiple variance shifts](docs/appendix-figures/multi_var_shift.png) | ![Trend shift](docs/appendix-figures/trend_shift.png) |
 | (g) multiple mean shifts | (h) multiple variance shifts | (i) trend shift |
+
+## Appendix E — Fractional Integration and ARFIMA Processes
+
+### E.1 Overview of ARFIMA Models
+
+**ARFIMA(p, d, q)** (AutoRegressive Fractionally Integrated Moving Average) extends classical ARIMA by allowing the differencing parameter *d* to take fractional values, enabling the modeling of long-memory processes. Unlike ARIMA models where *d* ∈ {0, 1, 2, ...}, ARFIMA admits *d* ∈ ℝ, typically constrained to (−0.5, 0.5) for stationarity.
+
+**Key Properties:**
+
+- **Stationarity Condition:** *d* < 0.5
+- **Long Memory:** When 0 < *d* < 0.5, the series exhibits positive long-range dependence (autocorrelations decay hyperbolically rather than exponentially).
+- **Anti-Persistence:** When −0.5 < *d* < 0, the series exhibits negative dependence (mean-reverting behavior stronger than white noise).
+- **Standard ARIMA:** When *d* ∈ {0, 1, 2, ...}, ARFIMA reduces to classical ARIMA.
+
+The fractional differencing operator is defined via the binomial series expansion:
+
+$$(1 - B)^d = \sum_{k=0}^{\infty} \binom{d}{k} (-1)^k B^k$$
+
+where the generalized binomial coefficient is:
+
+$$\binom{d}{k} = \frac{d(d-1)(d-2)\cdots(d-k+1)}{k!} = \prod_{j=0}^{k-1} \frac{d-j}{j+1}$$
+
+### E.2 Metadata Extensions for Fractional Processes
+
+The BeTiSe metadata schema is extended to accommodate fractional base series:
+
+| Column Name | Meaning |
+|---|---|
+| `fractional_integrated` | Set to 1 for ARFIMA series with fractional *d* parameter. |
+| `long_memory` | Set to 1 when 0 < *d* < 0.5 (positive long-range dependence). |
+| `d_parameter` | The fractional differencing parameter value (stored in context metadata). |
+| `ar_order` | Number of autoregressive terms *p*. |
+| `ma_order` | Number of moving average terms *q*. |
+
+### E.3 Generation Parameters for ARFIMA
+
+Default parameter ranges used in BeTiSe:
+
+| Parameter | Range | Purpose |
+|---|---|---|
+| `d_range` | [0.25, 0.49] | Fractional parameter ensuring long memory and stationarity. |
+| `p` | [1, 3] | AR order sampled uniformly. |
+| `q` | [1, 3] | MA order sampled uniformly. |
+| `ar_coeffs` | Stationary | Generated via `generate_arma_params()` to ensure stationarity. |
+| `ma_coeffs` | Invertible | Generated to ensure invertibility. |
+| `alpha` | 0 | Seasonal amplitude (optional). |
+| `numseas` | 100 | Seasonal period (optional). |
+
+### E.4 Representative ARFIMA Templates
+
+| ID | p | d | q | AR Coeffs | MA Coeffs | Notes |
+|---|---|---|---|---|---|---|
+| 19 | 1 | 0.30 | 1 | [0.6] | [0.4] | Moderate long memory, simple structure |
+| 20 | 2 | 0.45 | 2 | [0.7, −0.3] | [0.5, 0.3] | Strong long memory, complex dynamics |
+| 21 | 3 | 0.25 | 1 | [0.5, 0.2, 0.15] | [0.6] | Weak long memory, higher AR order |
+| 22 | 1 | 0.40 | 3 | [0.55] | [0.4, 0.3, 0.2] | Moderate memory, higher MA order |
+
+### E.5 Implementation Notes
+
+BeTiSe implements ARFIMA simulation using a binomial expansion truncation approach:
+
+1. **Weight Computation:** Fractional differencing weights are computed recursively:
+   $$w_k = w_{k-1} \cdot \frac{k-1-d}{k} \quad \text{for } k = 1, 2, \ldots, T$$
+   
+2. **Series Generation:**
+   - Generate white noise innovations $\epsilon_t \sim \mathcal{N}(0, \sigma^2)$
+   - Apply MA component: $u_t = \epsilon_t + \theta_1 \epsilon_{t-1} + \cdots + \theta_q \epsilon_{t-q}$
+   - Apply fractional integration: $v_t = \sum_{k=0}^{t} w_k u_{t-k}$
+   - Apply AR component: $y_t = \phi_1 y_{t-1} + \cdots + \phi_p y_{t-p} + v_t$
+
+3. **Burn-in Period:** A burn-in of max(500, 2×`numseas`) samples is used and discarded to eliminate initialization transients.
+
+See the implementation in `betise/utils/arfima_simulator.py` and usage example in `examples/09_arfima_example.ipynb`.
