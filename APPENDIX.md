@@ -139,14 +139,18 @@ Action: Boxed {\<one label from the allowed set above\>}
 
 ### E.1 Overview of ARFIMA Models
 
-**ARFIMA(p, d, q)** (AutoRegressive Fractionally Integrated Moving Average) extends classical ARIMA by allowing the differencing parameter *d* to take fractional values, enabling the modeling of long-memory processes. Unlike ARIMA models where *d* ∈ {0, 1, 2, ...}, ARFIMA admits *d* ∈ ℝ, typically constrained to (−0.5, 0.5) for stationarity.
+**ARFIMA(p, d, q)** (AutoRegressive Fractionally Integrated Moving Average) extends classical ARIMA by allowing the differencing parameter *d* to take fractional values, enabling the modeling of long-memory processes. Unlike ARIMA models where *d* ∈ {0, 1, 2, ...}, ARFIMA admits *d* ∈ ℝ, typically constrained to (−0.5, 0.5) for stationarity *and* invertibility.
+
+The process is defined by
+
+$$\Phi(B)\,(1 - B)^d X_t = \Theta(B)\,\epsilon_t, \qquad \epsilon_t \sim \mathcal{N}(0, \sigma^2)$$
 
 **Key Properties:**
 
-- **Stationarity Condition:** *d* < 0.5
+- **Stationarity Condition:** *d* < 0.5. This is the flag written to `is_stationary`; the range (−0.5, 0.5) additionally guarantees invertibility.
 - **Long Memory:** When 0 < *d* < 0.5, the series exhibits positive long-range dependence (autocorrelations decay hyperbolically rather than exponentially).
 - **Anti-Persistence:** When −0.5 < *d* < 0, the series exhibits negative dependence (mean-reverting behavior stronger than white noise).
-- **Standard ARIMA:** When *d* ∈ {0, 1, 2, ...}, ARFIMA reduces to classical ARIMA.
+- **Standard ARIMA:** When *d* ∈ {0, 1}, ARFIMA reduces exactly to the corresponding ARIMA process; *d* = 1 with no AR/MA terms is a random walk.
 
 The fractional differencing operator is defined via the binomial series expansion:
 
@@ -155,6 +159,10 @@ $$(1 - B)^d = \sum_{k=0}^{\infty} \binom{d}{k} (-1)^k B^k$$
 where the generalized binomial coefficient is:
 
 $$\binom{d}{k} = \frac{d(d-1)(d-2)\cdots(d-k+1)}{k!} = \prod_{j=0}^{k-1} \frac{d-j}{j+1}$$
+
+For a stationary ARFIMA(0, *d*, 0) process this expansion yields the closed-form second moments used throughout the implementation and its tests:
+
+$$\gamma(0) = \sigma^2 \frac{\Gamma(1 - 2d)}{\Gamma(1 - d)^2}, \qquad \rho(k) = \rho(k-1)\,\frac{k - 1 + d}{k - d}, \qquad \rho(1) = \frac{d}{1 - d}$$
 
 ### E.2 Metadata Extensions for Fractional Processes
 
@@ -179,8 +187,16 @@ Default parameter ranges used in BeTiSe:
 | `q` | [1, 3] | MA order sampled uniformly. |
 | `ar_coeffs` | Stationary | Generated via `generate_arma_params()` to ensure stationarity. |
 | `ma_coeffs` | Invertible | Generated to ensure invertibility. |
-| `alpha` | 0 | Seasonal amplitude (optional). |
-| `numseas` | 100 | Seasonal period (optional). |
+| `alpha` | 0 | Additive series constant. For a stationary series this is the process mean; for *d* ≥ 0.5 it sets the starting level. |
+| `numseas` | 100 | Number of seasoning (burn-in) samples generated and discarded before the series is recorded. |
+
+`alpha` and `numseas` follow the reference ARFIMA simulators (SAS/farmasim, R/arfima): a **series constant** and a **burn-in count**, not a seasonal amplitude and period. Seasonality is a separate feature category (Appendix B) and is never injected by the base generator.
+
+**MA sign convention.** BeTiSe uses the summation convention
+
+$$u_t = W_t + \theta_1 W_{t-1} + \cdots + \theta_q W_{t-q}$$
+
+matching `statsmodels.tsa.arima_process.ArmaProcess` and the library's own ARMA/ARIMA generators. SAS/farmafit and R/arfima use the opposite (Box–Jenkins difference) convention, so θ estimates from those packages carry the opposite sign to the values configured here.
 
 ### E.4 Representative ARFIMA Templates
 
@@ -193,17 +209,33 @@ Default parameter ranges used in BeTiSe:
 
 ### E.5 Implementation Notes
 
-BeTiSe implements ARFIMA simulation using a binomial expansion truncation approach:
+BeTiSe simulates the fractional part **exactly** rather than by truncating the binomial expansion. Writing $W_t = (1 - B)^{-d}\epsilon_t$ for the fractionally integrated noise, the process factorises as an ordinary ARMA filter applied to $W_t$:
 
-1. **Weight Computation:** Fractional differencing weights are computed recursively:
-   $$w_k = w_{k-1} \cdot \frac{k-1-d}{k} \quad \text{for } k = 1, 2, \ldots, T$$
-   
-2. **Series Generation:**
-   - Generate white noise innovations $\epsilon_t \sim \mathcal{N}(0, \sigma^2)$
-   - Apply MA component: $u_t = \epsilon_t + \theta_1 \epsilon_{t-1} + \cdots + \theta_q \epsilon_{t-q}$
-   - Apply fractional integration: $v_t = \sum_{k=0}^{t} w_k u_{t-k}$
-   - Apply AR component: $y_t = \phi_1 y_{t-1} + \cdots + \phi_p y_{t-p} + v_t$
+$$X_t = \Phi(B)^{-1}\,\Theta(B)\,W_t$$
 
-3. **Burn-in Period:** A burn-in of max(500, 2×`numseas`) samples is used and discarded to eliminate initialization transients.
+so only $W_t$ needs fractional machinery.
 
-See the implementation in `betise/utils/arfima_simulator.py` and usage example in `examples/09_arfima_example.ipynb`.
+1. **Split of *d*.** *d* is written as a stationary fractional part plus integer integrations: for *d* ≥ 0.5 the simulator draws an ARFIMA(*p*, *d*−1, *q*) core and integrates it once. This is what makes integer *d* reduce exactly to ARIMA.
+
+2. **Exact fractional noise.** $W_t$ is drawn with the Davies–Harte circulant-embedding method from the closed-form autocovariance $\gamma(k)$ of E.1: the autocovariance sequence is wrapped into a circulant matrix, its eigenvalues are obtained by an FFT, and the sample is synthesised in the spectral domain. The result has exactly the target autocovariance, at $O(T \log T)$ cost.
+
+3. **ARMA filtering.**
+   - Apply the MA component: $u_t = W_t + \theta_1 W_{t-1} + \cdots + \theta_q W_{t-q}$
+   - Apply the AR recursion: $y_t = \phi_1 y_{t-1} + \cdots + \phi_p y_{t-p} + u_t$
+
+4. **Burn-in.** `numseas` samples (default 100) are generated and discarded to remove the ARMA start-up transient. The fractional part needs no burn-in because it is drawn exactly and stationarily. Integer integration is applied *after* the burn-in so a non-stationary series starts at the requested level.
+
+5. **Validation.** Arguments outside the documented ranges (`-1 < d ≤ 1`, `10 ≤ slen ≤ 100000`, `0 ≤ numseas ≤ 10000`, orders ≤ 10, `sigma > 0`) raise `ValueError` instead of silently producing a degenerate series.
+
+**Why not truncation.** A truncated expansion of $(1-B)^{-d}$ attenuates exactly the long memory the model is meant to exhibit. With a 1000-term expansion the implied lag-10 autocorrelation and variance are understated by:
+
+| *d* | lag-10 ACF | variance |
+|---|---|---|
+| 0.25 | −3.2% | −0.4% |
+| 0.30 | −5.8% | −1.2% |
+| 0.45 | −17.8% | −18.5% |
+| 0.49 | −19.5% | −30.6% |
+
+The damage is worst at the top of the default `d_range`, and truncation also breaks the integer-*d* reduction (a truncated $(1-B)^{-1}$ turns first differences into $\epsilon_t - \epsilon_{t-1000}$, giving a differenced variance of 2σ² instead of σ²). The exact sampler has neither problem.
+
+See the implementation in `betise/utils/arfima_simulator.py`, the statistical tests in `tests/test_arfima.py`, and the usage example in `examples/09_arfima_example.ipynb`.

@@ -308,10 +308,12 @@ class TimeSeriesGenerator:
         noise_std : float, optional
             Innovation standard deviation
         alpha : float
-            Seasonal component strength (default: 0)
+            Additive series constant, i.e. the process mean for a stationary
+            series (default: 0)
         numseas : int
-            Seasonal period (default: 100)
-            
+            Number of seasoning (burn-in) samples generated and discarded
+            before the series is recorded (default: 100)
+
         Returns
         -------
         series : np.ndarray
@@ -334,7 +336,7 @@ class TimeSeriesGenerator:
             'ma_order': q,         # Alias for consistency
             'ma_coefs': ma_coefs,
             'diff': d,             # Alias for consistency with other processes
-            'stationary': -0.5 < d < 0.5,
+            'stationary': d < 0.5,
             'fractionally_integrated': True,
             'long_memory': 0 < d < 0.5,
             'alpha': alpha,
@@ -373,10 +375,10 @@ class TimeSeriesGenerator:
         noise_std : float, optional
             Innovation standard deviation
         alpha : float
-            Seasonal component strength
+            Additive series constant
         numseas : int
-            Seasonal period
-            
+            Number of seasoning (burn-in) samples discarded before recording
+
         Returns
         -------
         df : pd.DataFrame
@@ -406,7 +408,7 @@ class TimeSeriesGenerator:
         df = pd.DataFrame({
             'time': np.arange(self.length),
             'data': series,
-            'stationary': np.full(self.length, int(-0.5 < d < 0.5), dtype=int),
+            'stationary': np.full(self.length, int(d < 0.5), dtype=int),
             'seasonal': np.zeros(self.length, dtype=int),
         })
 
