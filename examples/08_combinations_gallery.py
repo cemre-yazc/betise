@@ -52,6 +52,7 @@ BASE_SERIES_MAP = {
     "GARCH":         "garch",
     "EGARCH":        "egarch",
     "APARCH":        "aparch",
+    "ARFIMA":        "arfima",
 }
 
 FEATURE_MAP = {

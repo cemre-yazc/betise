@@ -50,6 +50,7 @@ run(cfg)
 | Stochastic trend | `random_walk`, `random_walk_drift`, `ari`, `ima`, `arima` |
 | Seasonal | `sarma`, `sarima` |
 | Volatility | `arch`, `garch`, `egarch`, `aparch` |
+| Fractional | `arfima` |
 
 ## Feature Overlays
 

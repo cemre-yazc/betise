@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "betise"
-version = "0.2.2"
+version = "0.3.0"
 description = "BeTiSe — Benchmark Time Series Generator for synthetic dataset creation"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -18,6 +18,8 @@ keywords = [
     "dataset-generation",
     "benchmark",
     "arima",
+    "arfima",
+    "long-memory",
     "garch",
     "anomaly-detection",
     "machine-learning",

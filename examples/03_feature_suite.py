@@ -7,7 +7,7 @@ processes. Organised into six phases so each combination can be loaded and
 studied independently.
 
 Phase breakdown:
-  1 — Pure base processes      : 15 bases × 3 lengths × 22 series       =   990
+  1 — Pure base processes      : 16 bases × 3 lengths × 22 series       = 1,056
   2 — Base + deterministic trend:  8 bases × 5 trends × 3 lengths × 9  = 1,080
   3 — Base + anomaly           :  6 bases × 3 types × 3 lengths × 11   =   594
   4 — Base + structural break  :  6 bases × 3 types × 3 lengths × 11   =   594
@@ -90,6 +90,7 @@ BASE_TYPES = [
     "random_walk", "random_walk_drift", "ari", "ima", "arima",
     "sarma", "sarima",
     "arch", "garch", "egarch", "aparch",
+    "arfima",
 ]
 for base in BASE_TYPES:
     for bucket_label, length_range in LENGTH_BUCKETS:

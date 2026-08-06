@@ -6,7 +6,7 @@ Generates a large, fixed-length dataset suitable for pretraining foundation
 models or running large-scale statistical experiments.
 
 Default configuration:
-  15 base types × 5,000 series × length = 1,000 = 75,000 series total
+  16 base types × 5,000 series × length = 1,000 = 80,000 series total
 
 Primary category breakdown:
   stationary  : ar, ma, arma, white_noise             (4 types × 5k = 20,000)
@@ -14,8 +14,9 @@ Primary category breakdown:
                 ari, ima, arima                        (5 types × 5k = 25,000)
   seasonality : sarma, sarima                          (2 types × 5k = 10,000)
   volatility  : arch, garch, egarch, aparch            (4 types × 5k = 20,000)
+  fractional  : arfima                                 (1 type  × 5k =  5,000)
   ──────────────────────────────────────────────────────────────────────
-  Total                                                           75,000
+  Total                                                           80,000
 
 Generation is chunked to keep memory usage constant regardless of total size.
 Each chunk is written as a separate parquet file. Adjust the constants below
@@ -30,8 +31,8 @@ Output layout:
     ma/  arma/  ...
 
 Scaling guide:
-  SERIES_TOTAL = 5_000   → 75k series total  (default)
-  SERIES_TOTAL = 20_000  → 300k series total
+  SERIES_TOTAL = 5_000   → 80k series total  (default)
+  SERIES_TOTAL = 20_000  → 320k series total
   CHUNK_SIZE             → tune to fit available RAM (500 is conservative)
 
 Run:
@@ -57,6 +58,8 @@ BASE_TYPES = [
     "sarma", "sarima",
     # volatility (base)
     "arch", "garch", "egarch", "aparch",
+    # fractional (base)
+    "arfima",
 ]
 
 ALL_FEATURES_OFF = {

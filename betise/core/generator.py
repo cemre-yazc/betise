@@ -6,6 +6,7 @@ from statsmodels.tsa.arima_process import ArmaProcess
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from arch import arch_model
 from statsmodels.tsa.seasonal import STL,MSTL
+from betise.utils.arfima_simulator import ARFIMA_sim
 
 class TimeSeriesGenerator:
     def __init__(self, length=None):
@@ -14,12 +15,14 @@ class TimeSeriesGenerator:
         self.seasonal_base_distributions = ['sarma', 'sarima']
         self.volatile_base_distributions = ['arch', 'garch', 'egarch', 'aparch']
         self.stochastic_base_distributions = ['ari', 'ima', 'arima']
+        self.fractional_base_distributions = ['arfima']
         self.characteristics = {'deterministic_trend_linear' : self.generate_deterministic_trend_linear,
         'deterministic_trend_cubic': self.generate_deterministic_trend_cubic,
         'deterministic_trend_quadratic': self.generate_deterministic_trend_quadratic,
         'deterministic_trend_exponential': self.generate_deterministic_trend_exponential,
         'deterministic_trend_damped': self.generate_deterministic_trend_damped,
         'stochastic_trend': self.generate_stochastic_trend,
+        'fractional_process': self.generate_fractional_process,
         'single_seasonality': self.generate_single_seasonality,
         'multiple_seasonality': self.generate_multiple_seasonality,
         'single_point_anomaly' : self.generate_point_anomaly,
@@ -241,6 +244,346 @@ class TimeSeriesGenerator:
         series = series + np.random.normal(0,noise_std,length)
         return series, info
 
+    def generate_arfima_params(
+        self,
+        order_range=(1, 3),
+        d_range=(0.25, 0.49),
+        coef_range=(-0.9, 0.9)
+    ):
+        """Generate ARFIMA model parameters.
+        
+        Returns (p, d, q, ar_coefs, ma_coefs) where:
+        - p, q are AR/MA orders
+        - d is fractional differencing parameter (0.25 to 0.49 for long memory)
+        - ar_coefs, ma_coefs are stationary/invertible coefficients
+        """
+        while True:
+            p = np.random.randint(order_range[0], order_range[1] + 1)
+            q = np.random.randint(order_range[0], order_range[1] + 1)
+
+            ar_coefs = self.generate_nonzero_coefs(
+                p, coef_range[0], coef_range[1],
+                exclusion_lower=0.2, exclusion_upper=0.8
+            )
+
+            ma_coefs = self.generate_nonzero_coefs(
+                q, coef_range[0], coef_range[1],
+                exclusion_lower=0.2, exclusion_upper=0.8
+            )
+
+            ar = np.r_[1, -ar_coefs]
+            ma = np.r_[1, ma_coefs]
+            arma_process = ArmaProcess(ar, ma)
+
+            if arma_process.isstationary and arma_process.isinvertible:
+                break
+
+        # Fractional differencing parameter for long memory
+        d = np.random.uniform(d_range[0], d_range[1])
+
+        return p, d, q, ar_coefs, ma_coefs
+
+    def generate_arfima_series(
+        self,
+        length,
+        d_range=(0.25, 0.49),
+        noise_std=None,
+        alpha=0,
+        numseas=100
+    ):
+        """Generate ARFIMA(p, d, q) series with long memory.
+        
+        Parameters
+        ----------
+        length : int
+            Series length
+        d_range : tuple
+            Range for fractional differencing parameter
+        noise_std : float, optional
+            Innovation standard deviation
+        alpha : float
+            Additive series constant, i.e. the process mean for a stationary
+            series (default: 0)
+        numseas : int
+            Number of seasoning (burn-in) samples generated and discarded
+            before the series is recorded (default: 100)
+
+        Returns
+        -------
+        series : np.ndarray
+            Generated ARFIMA series
+        info : dict
+            Metadata including d, stationarity, long_memory flags
+        """
+        noise_std = noise_std if noise_std is not None else np.random.uniform(0.1, 1.5)
+        
+        p, d, q, ar_coefs, ma_coefs = self.generate_arfima_params(d_range=d_range)
+
+        info = {
+            'type': 'base_series',
+            'subtype': 'ARFIMA',
+            'p': p,                # ARFIMA p order
+            'd': d,                # Fractional differencing parameter
+            'q': q,                # ARFIMA q order
+            'ar_order': p,         # Alias for consistency
+            'ar_coefs': ar_coefs,
+            'ma_order': q,         # Alias for consistency
+            'ma_coefs': ma_coefs,
+            'diff': d,             # Alias for consistency with other processes
+            'stationary': d < 0.5,
+            'fractionally_integrated': True,
+            'long_memory': 0 < d < 0.5,
+            'alpha': alpha,
+            'sigma': noise_std,
+            'numseas': numseas
+        }
+
+        series = ARFIMA_sim(
+            p_coeffs=ar_coefs,
+            q_coeffs=ma_coefs,
+            d=d,
+            slen=length,
+            alpha=alpha,
+            sigma=noise_std,
+            numseas=numseas
+        )
+
+        return series, info
+
+    def generate_fractional_process(
+        self,
+        kind=None,
+        d_range=(0.25, 0.49),
+        noise_std=None,
+        alpha=0,
+        numseas=100
+    ):
+        """Generate fractionally integrated process (ARFIMA).
+        
+        Parameters
+        ----------
+        kind : str, optional
+            Type of fractional process ('arfima'). If None, random choice.
+        d_range : tuple
+            Range for fractional differencing parameter
+        noise_std : float, optional
+            Innovation standard deviation
+        alpha : float
+            Additive series constant
+        numseas : int
+            Number of seasoning (burn-in) samples discarded before recording
+
+        Returns
+        -------
+        df : pd.DataFrame
+            DataFrame with time, data, and classification columns
+        info : dict
+            Metadata dictionary
+        """
+        if kind is None:
+            kind = np.random.choice(self.fractional_base_distributions)
+
+        if kind == 'arfima':
+            series, info = self.generate_arfima_series(
+                length=self.length,
+                d_range=d_range,
+                noise_std=noise_std,
+                alpha=alpha,
+                numseas=numseas
+            )
+        else:
+            raise ValueError(
+                f"Invalid fractional process '{kind}'. "
+                f"Choose from {self.fractional_base_distributions}."
+            )
+
+        d = float(info['diff'])
+
+        df = pd.DataFrame({
+            'time': np.arange(self.length),
+            'data': series,
+            'stationary': np.full(self.length, int(d < 0.5), dtype=int),
+            'seasonal': np.zeros(self.length, dtype=int),
+        })
+
+        return df, info
+
+    def generate_sarima_params(self, p_range=(1, 3), d_range=(0, 1), q_range=(1, 3), P_range=(1, 3), Q_range=(1, 3), D_range=(0,1), coef_range = (-0.9,0.9)):
+        while True:
+            p = np.random.randint(p_range[0], p_range[1] + 1)
+            d = np.random.randint(d_range[0], d_range[1] + 1)
+            q = np.random.randint(q_range[0], q_range[1] + 1)
+
+            if d == 0:
+                D = 1
+            else:
+                D = np.random.randint(D_range[0], D_range[1] + 1)
+            
+            P = np.random.randint(P_range[0], P_range[1] + 1)
+            Q = np.random.randint(Q_range[0], Q_range[1] + 1)
+            valid_periods = [s for s in [5, 7, 12, 24, 30, 52, 90, 180] if self.length // 12 <= s <= self.length // 4]
+            if not valid_periods:
+                continue
+            s = random.choice(valid_periods)
+
+            ar_params = self.generate_nonzero_coefs(p, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if p > 0 else np.array([])
+            ma_params = self.generate_nonzero_coefs(q, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if q > 0 else np.array([])
+            seasonal_ar_params = self.generate_nonzero_coefs(P, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if P > 0 else np.array([])
+            seasonal_ma_params = self.generate_nonzero_coefs(Q, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if Q > 0 else np.array([])
+
+            if (self.is_stationary(ar_params) and self.is_invertible(ma_params) and
+                self.is_stationary(seasonal_ar_params) and self.is_invertible(seasonal_ma_params)):
+
+                arma_params = np.concatenate([ar_params, ma_params, seasonal_ar_params, seasonal_ma_params])
+                return (p, d, q), (P, D, Q, s), arma_params
+
+    def generate_sarima_series(self, length, max_attempts=10, noise_std=None, noise_scale=0.3):
+        self.length = length
+        noise_std = noise_std if noise_std is not None else np.random.uniform(0.1, 1.5)
+        attempts = 0
+        while attempts < max_attempts:
+            try:
+                order, seasonal_order, arma_params = self.generate_sarima_params()
+                p, d, q = order
+                P, D, Q, s = seasonal_order
+                period = s
+                warmup = max(8 * s, 200)
+
+                # Skip overly complex models
+                if (p + q + P + Q) > 6:
+                    continue
+
+                # Skip unstable or uninteresting coefficient sets
+                if np.sum(np.abs(arma_params)) < 0.6 or np.max(np.abs(arma_params)) > 0.6:
+                    continue
+
+                variance_param = np.array([1.0])
+                full_params = np.concatenate([arma_params, variance_param])
+
+                # Use stationary initialization to avoid diffuse Kalman filter transient
+                endog_dummy = np.zeros(length + warmup)
+                model = SARIMAX(
+                    endog=endog_dummy,
+                    order=order,
+                    seasonal_order=seasonal_order,
+                    enforce_stationarity=False,
+                    enforce_invertibility=False,
+                    initialization='approximate_diffuse')
+
+                series = model.simulate(params=full_params, nsimulations=length + warmup,
+                                        initial_state=np.zeros(model.k_states))
+                series = series[warmup:]
+
+                if (np.std(series[-length//2:]) < 0.05 or np.max(np.abs(series)) < 0.3):
+                    print("Flat or decaying series — discarded")
+                    print(f"Order: {order}, Seasonal Order: {seasonal_order}")
+                    print("Coefficients:", arma_params)
+                    continue
+
+                # Reject series whose first 15% has >3x higher std than the stable middle
+                head_std   = np.std(series[:length // 7])
+                middle_std = np.std(series[length // 4: 3 * length // 4])
+                if middle_std > 0 and head_std > 3.0 * middle_std:
+                    continue
+
+                series += np.random.normal(0, noise_std * 0.2, length)
+                series = self.z_normalize(series)
+                info = {'type': 'seasonal', 'subtype': 'SARIMA', 'periods': [period], 'ar_order':p, 'ma_order':q, 'diff':d, 'seasonal_ar_order':P, 'seasonal_ma_order': Q, 'seasonal_diff': D, 'coefs': arma_params}
+                return series, info
+
+            except (ValueError, np.linalg.LinAlgError):
+                attempts += 1
+                print(f"Attempt {attempts}/{max_attempts} failed. Retrying...")
+
+        print("SARIMA generation failed. Returning None.")
+        return None, None  # Return None on failure
+
+    def generate_sarma_params(self, p_range=(1, 3), q_range=(1, 3), P_range=(1, 3), Q_range=(1, 3), coef_range = (-0.9,0.9)):
+        while True:
+            p = np.random.randint(p_range[0], p_range[1] + 1)
+            q = np.random.randint(q_range[0], q_range[1] + 1)
+            d = 0
+
+            P = np.random.randint(P_range[0], P_range[1] + 1)
+            Q = np.random.randint(Q_range[0], Q_range[1] + 1)
+            D = 0
+            valid_periods = [s for s in [5, 7, 12, 24, 30, 52, 90, 180] if self.length // 12 <= s <= self.length // 4]
+            if not valid_periods:
+                continue
+            s = random.choice(valid_periods)
+
+            ar_params = self.generate_nonzero_coefs(p, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if p > 0 else np.array([])
+            ma_params = self.generate_nonzero_coefs(q, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if q > 0 else np.array([])
+            seasonal_ar_params = self.generate_nonzero_coefs(P, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if P > 0 else np.array([])
+            seasonal_ma_params = self.generate_nonzero_coefs(Q, coef_range[0], coef_range[1], exclusion_lower=0.3, exclusion_upper=0.6) if Q > 0 else np.array([])
+
+            if (self.is_stationary(ar_params) and self.is_invertible(ma_params) and
+                self.is_stationary(seasonal_ar_params) and self.is_invertible(seasonal_ma_params)):
+
+                arma_params = np.concatenate([ar_params, ma_params, seasonal_ar_params, seasonal_ma_params])
+                return (p, d, q), (P, D, Q, s), arma_params
+
+    def generate_sarma_series(self, length, max_attempts=10, noise_std=None, noise_scale=0.3):
+        self.length = length
+        noise_std = noise_std if noise_std is not None else np.random.uniform(0.1, 1.5)
+        attempts = 0
+        while attempts < max_attempts:
+            try:
+                order, seasonal_order, arma_params = self.generate_sarma_params()
+                p, d, q = order
+                P, D, Q, s = seasonal_order
+                period = s
+                warmup = max(8 * s, 200)
+
+                # Skip overly complex models
+                if (p + q + P + Q) > 6:
+                    continue
+
+                # Skip unstable or uninteresting coefficient sets
+                if np.sum(np.abs(arma_params)) < 0.6 or np.max(np.abs(arma_params)) > 0.6:
+                    continue
+
+                variance_param = np.array([1.0])
+                full_params = np.concatenate([arma_params, variance_param])
+
+                # Use stationary initialization to avoid diffuse Kalman filter transient
+                endog_dummy = np.zeros(length + warmup)
+                model = SARIMAX(
+                    endog=endog_dummy,
+                    order=order,
+                    seasonal_order=seasonal_order,
+                    enforce_stationarity=False,
+                    enforce_invertibility=False,
+                    initialization='approximate_diffuse')
+
+                series = model.simulate(params=full_params, nsimulations=length + warmup,
+                                        initial_state=np.zeros(model.k_states))
+                series = series[warmup:]
+
+                # Post-filter flat or unrealistic series
+                if (np.std(series[-length//2:]) < 0.05 or np.max(np.abs(series)) < 0.3):
+                    print("Flat or decaying series — discarded")
+                    print(f"Order: {order}, Seasonal Order: {seasonal_order}")
+                    print("Coefficients:", arma_params)
+                    continue
+
+                # Reject series whose first 15% has >3x higher std than the stable middle
+                head_std   = np.std(series[:length // 7])
+                middle_std = np.std(series[length // 4: 3 * length // 4])
+                if middle_std > 0 and head_std > 3.0 * middle_std:
+                    continue
+
+                series += np.random.normal(0, noise_std * 0.2, length)
+                series = self.z_normalize(series)
+                info = {'type': 'seasonal', 'subtype': 'SARMA', 'periods': [period], 'ar_order':p, 'ma_order':q, 'diff':d, 'seasonal_ar_order':P, 'seasonal_ma_order': Q, 'seasonal_diff': D, 'coefs': arma_params}
+                return series, info
+
+            except (ValueError, np.linalg.LinAlgError):
+                attempts += 1
+                print(f"Attempt {attempts}/{max_attempts} failed. Retrying...")
+
+        print("SARMA generation failed. Returning None.")
+        return None, None  # Return None on failure
 
     
     def generate_arch_series(self, length, alpha_range=(0.5, 0.9), omega_range=(0.1, 0.3), cumulative=False, scale_factor=1):

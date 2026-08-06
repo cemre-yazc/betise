@@ -45,7 +45,7 @@ OUTPUT_PDF = OUTPUT_DIR / "feature_gallery.pdf"
 SEED       = 42
 LENGTH     = 700
 
-# All 15 base series in display order
+# All 16 base series in display order
 BASE_SERIES = [
     # Stationary
     ("White Noise",        "white_noise"),
@@ -66,6 +66,8 @@ BASE_SERIES = [
     ("GARCH",              "garch"),
     ("EGARCH",             "egarch"),
     ("APARCH",             "aparch"),
+    # Fractional
+    ("ARFIMA",             "arfima"),
 ]
 
 # All 12 features — (display name, feature key, base to use)

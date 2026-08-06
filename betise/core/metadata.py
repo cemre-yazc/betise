@@ -46,10 +46,46 @@ def create_metadata_record(
     ma_order=None,
     seasonal_ar_order=None,
     seasonal_ma_order=None,
-    ar_coefs=None,
-    ma_coefs=None,
-    seasonal_ar_coefs=None,
-    seasonal_ma_coefs=None,
+    # === VOLATILITY ===
+    volatility_type=None,
+    volatility_alpha=None,
+    volatility_beta=None,
+    volatility_omega=None,
+    volatility_theta=None,
+    volatility_lambda=None,
+    volatility_gamma=None,
+    volatility_delta=None,
+    # === FRACTIONAL ===
+    fractional_type=None,
+    fractional_integrated=None,
+    long_memory=None,
+    d_parameter=None,
+    ar_order=None,
+    ma_order=None,
+    # === ANOMALY ===
+    anomaly_type=None,
+    anomaly_shapes=None,
+    anomaly_count=None,
+    anomaly_indices=None,
+    anomaly_magnitudes=None,
+    # === BREAK ===
+    break_type=None,
+    break_count=None,
+    break_indices=None,
+    break_magnitudes=None,
+    break_directions=None,
+    trend_shift_change_types=None,
+    # === LOCATION ===
+    location_point=None,
+    location_collective=None,
+    location_mean_shift=None,
+    location_variance_shift=None,
+    location_trend_shift=None,
+    location_contextual=None,
+    # === NOISE & ETC ===
+    noise_type=None,
+    noise_std=None,
+    sampling_frequency=None,
 ):
     """
     Create metadata record for seasonal time series.
@@ -88,64 +124,47 @@ def create_metadata_record(
         "ma_order": ma_order,
         "seasonal_ar_order": seasonal_ar_order,
         "seasonal_ma_order": seasonal_ma_order,
-        "ar_coefs": ar_coefs,
-        "ma_coefs": ma_coefs,
-        "seasonal_ar_coefs": seasonal_ar_coefs,
-        "seasonal_ma_coefs": seasonal_ma_coefs,
+        # === Volatility ===
+        "volatility_type": volatility_type,
+        "volatility_alpha": volatility_alpha,
+        "volatility_beta": volatility_beta,
+        "volatility_omega": volatility_omega,
+        "volatility_theta": volatility_theta,
+        "volatility_lambda": volatility_lambda,
+        "volatility_gamma": volatility_gamma,
+        "volatility_delta": volatility_delta,
+        # === Fractional ===
+        "fractional_type": fractional_type,
+        "fractional_integrated": fractional_integrated,
+        "long_memory": long_memory,
+        "d_parameter": d_parameter,
+        "ar_order": ar_order,
+        "ma_order": ma_order,
+        # === Anomaly ===
+        "anomaly_type": anomaly_type,
+        "anomaly_count": anomaly_count,
+        "anomaly_indices": anomaly_indices,
+        "anomaly_magnitudes": anomaly_magnitudes,
+        "anomaly_shapes": anomaly_shapes,
+        # === Break ===
+        "break_type": break_type,
+        "break_count": break_count,
+        "break_indices": break_indices,
+        "break_magnitudes": break_magnitudes,
+        "break_directions": break_directions,
+        "trend_shift_change_types": trend_shift_change_types,
+        # === Location ===
+        "location_point": location_point,
+        "location_collective": location_collective,
+        "location_mean_shift": location_mean_shift,
+        "location_variance_shift": location_variance_shift,
+        "location_trend_shift": location_trend_shift,
+        "location_contextual": location_contextual,
+        # === Noise & ETC ===
+        "noise_type": noise_type,
+        "noise_std": noise_std,
+        "sampling_frequency": sampling_frequency,
     }
-
-    return record
-
-
-def create_metadata_from_info(
-    series_id,
-    length,
-    label,
-    info,
-    is_stationary=0
-):
-    """
-    Create metadata directly from the info dictionary returned by the generator.
-    """
-
-    record = create_metadata_record(
-        series_id=series_id,
-        length=length,
-        label=label,
-        is_stationary=is_stationary,
-
-        # Common seasonal fields
-        series_type=info.get("type"),
-        subtype=info.get("subtype"),
-        periods=info.get("periods"),
-        period_meanings=info.get("period_meanings"),
-
-        # Fourier / seasonality parameters
-        amplitude=info.get("amplitude"),
-        amplitudes=info.get("amplitudes"),
-        noise_std=info.get("noise_std"),
-        scale_factor=info.get("scale_factor"),
-        num_harmonics=info.get("num_harmonics"),
-        coefficients=info.get("coefficients"),
-        fourier_coefficients=info.get("fourier_coefficients"),
-
-        # SARIMA-specific
-        diff=info.get("diff"),
-        seasonal_diff=info.get("seasonal_diff"),
-        unit_root=info.get("unit_root"),
-        initial_std=info.get("initial_std"),
-
-        # SARMA-specific
-        ar_order=info.get("ar_order"),
-        ma_order=info.get("ma_order"),
-        seasonal_ar_order=info.get("seasonal_ar_order"),
-        seasonal_ma_order=info.get("seasonal_ma_order"),
-        ar_coefs=info.get("ar_coefs"),
-        ma_coefs=info.get("ma_coefs"),
-        seasonal_ar_coefs=info.get("seasonal_ar_coefs"),
-        seasonal_ma_coefs=info.get("seasonal_ma_coefs"),
-    )
-
     return record
 
 

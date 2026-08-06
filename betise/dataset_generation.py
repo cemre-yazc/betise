@@ -56,6 +56,7 @@ ANOMALY_FEATURES      = {"point_anomaly", "collective_anomaly", "contextual_anom
 STOCHASTIC_BASE_SERIES = {"random_walk", "random_walk_drift", "ari", "ima", "arima"}
 SEASONAL_BASE_SERIES   = {"sarma", "sarima"}
 VOLATILITY_BASE_SERIES = {"arch", "garch", "egarch", "aparch"}
+FRACTIONAL_BASE_SERIES = {"arfima"}
 
 
 # ── PyArrow compatibility patch ───────────────────────────────────────────────
@@ -128,7 +129,7 @@ def _base_metadata(base_series: str, info: Dict[str, Any]) -> Tuple[str, str]:
     PyArrow type errors on to_parquet).
     """
     if base_series in {"white_noise", "random_walk", "random_walk_drift"} \
-            | SEASONAL_BASE_SERIES | VOLATILITY_BASE_SERIES:
+            | SEASONAL_BASE_SERIES | VOLATILITY_BASE_SERIES | FRACTIONAL_BASE_SERIES:
         return "0", "0"
     if base_series == "ar":
         return f"({info.get('ar_coefs')})", f"({info.get('ar_order')})"
@@ -209,6 +210,18 @@ def generate_base_series(
     # Volatility base: arch, garch, egarch, aparch
     if base_series in VOLATILITY_BASE_SERIES:
         return ts.generate_volatility(kind=base_series)
+
+    # Fractional base: arfima
+    if base_series == "arfima":
+        d_range = base_params.get("d_range", [0.25, 0.49])
+        alpha = _sample_value(base_params.get("alpha", 0))
+        numseas = _sample_value(base_params.get("numseas", 100))
+        return ts.generate_fractional_process(
+            kind="arfima",
+            d_range=tuple(d_range) if isinstance(d_range, list) else d_range,
+            alpha=alpha,
+            numseas=numseas
+        )
 
     raise ValueError(f"Unsupported base_series: '{base_series}'")
 
@@ -599,6 +612,15 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             meta["volatility_gamma"]  = base_info.get("gamma")
             meta["volatility_delta"]  = base_info.get("delta")
 
+        # ── Populate fractional metadata when arfima is the base ──────────────
+        if base_series in FRACTIONAL_BASE_SERIES:
+            meta["fractional_type"]       = base_series
+            meta["d_parameter"]           = base_info.get("d")
+            meta["ar_order"]              = base_info.get("p")
+            meta["ma_order"]              = base_info.get("q")
+            meta["fractional_integrated"] = 1
+            meta["long_memory"]           = 1 if 0 < base_info.get("d", 0) < 0.5 else 0
+
         # ── Apply feature pipeline ────────────────────────────────────────────
         for feature_name in enabled_features:
             feature_cfg_item = feature_cfgs.get(feature_name, {})
@@ -650,6 +672,12 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             volatility_lambda=meta.get("volatility_lambda"),
             volatility_gamma=meta.get("volatility_gamma"),
             volatility_delta=meta.get("volatility_delta"),
+            fractional_type=meta.get("fractional_type"),
+            fractional_integrated=meta.get("fractional_integrated"),
+            long_memory=meta.get("long_memory"),
+            d_parameter=meta.get("d_parameter"),
+            ar_order=meta.get("ar_order"),
+            ma_order=meta.get("ma_order"),
             anomaly_type=meta.get("anomaly_type"),
             anomaly_count=meta.get("anomaly_count"),
             anomaly_indices=meta.get("anomaly_indices"),
@@ -674,9 +702,15 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
     combined_df = pd.concat(all_dfs, ignore_index=True)
 
     # Normalize object columns: mixed int/str/None across base types causes
-    # PyArrow type errors. Cast all object-dtype columns to str consistently.
+    # PyArrow type errors. Cast all object-dtype columns to str consistently,
+    # but preserve numeric types for fractional parameters.
+    numeric_cols = {'d_parameter', 'ar_order', 'ma_order', 'fractional_integrated', 'long_memory'}
     for _col in combined_df.select_dtypes(include="object").columns:
-        combined_df[_col] = combined_df[_col].astype(str)
+        if _col in numeric_cols:
+            # Convert to numeric, coercing errors to NaN
+            combined_df[_col] = pd.to_numeric(combined_df[_col], errors='coerce')
+        else:
+            combined_df[_col] = combined_df[_col].astype(str)
 
     context = {
         "dataset_cfg":     dataset_cfg,
