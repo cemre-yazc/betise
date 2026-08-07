@@ -12,7 +12,6 @@ class TimeSeriesGenerator:
     def __init__(self, length=None):
         self.length = length if length is not None else 400
         self.stationary_base_distributions = ['ar', 'ma', 'arma','white_noise']
-        self.seasonal_base_distributions = ['sarma', 'sarima']
         self.volatile_base_distributions = ['arch', 'garch', 'egarch', 'aparch']
         self.stochastic_base_distributions = ['ari', 'ima', 'arima']
         self.fractional_base_distributions = ['arfima']
@@ -25,6 +24,8 @@ class TimeSeriesGenerator:
         'fractional_process': self.generate_fractional_process,
         'single_seasonality': self.generate_single_seasonality,
         'multiple_seasonality': self.generate_multiple_seasonality,
+        'sarima_seasonality': self.generate_sarima_series,
+        'sarma_seasonality': self.generate_sarma_series,
         'single_point_anomaly' : self.generate_point_anomaly,
         'multiple_point_anomalies': self.generate_point_anomalies,
         'collective_anomalies': self.generate_collective_anomalies,
@@ -970,20 +971,198 @@ class TimeSeriesGenerator:
             )
 
         return df, info
+
+    def _get_fourier_context(
+        self,
+        seasonal_info,
+        n
+    ):
+        """
+        Reconstruct one existing Fourier seasonal context.
+
+        Supports:
+            - single_seasonality
+            - multiple_seasonality
+            - SARMA
+            - SARIMA
+
+        For SARIMA, the Fourier term belongs to the
+        seasonally differenced domain, so it is
+        seasonally integrated to obtain its contribution
+        in the observed-series domain.
+        """
+
+        periods = seasonal_info.get("periods")
+
+        if periods is None or len(periods) == 0:
+            raise ValueError(
+                "seasonal_info must contain at least "
+                "one seasonal period."
+            )
+
+        # --------------------------------------------------
+        # Choose one existing seasonal component
+        # --------------------------------------------------
+        period = random.choice(periods)
+
+        subtype = seasonal_info.get(
+            "subtype",
+            ""
+        ).lower()
+
+        # --------------------------------------------------
+        # Retrieve coefficients
+        # --------------------------------------------------
+        if subtype == "multiple_seasonality":
+
+            all_coefficients = seasonal_info.get(
+                "coefficients"
+            )
+
+            if all_coefficients is None:
+                raise ValueError(
+                    "No Fourier coefficients found "
+                    "for multiple seasonality."
+                )
+
+            period_data = next(
+                (
+                    item
+                    for item in all_coefficients
+                    if item["period"] == period
+                ),
+                None
+            )
+
+            if period_data is None:
+                raise ValueError(
+                    f"No Fourier coefficients found "
+                    f"for period={period}."
+                )
+
+            coefficients = period_data[
+                "coefficients"
+            ]
+
+        elif subtype == "sarma":
+
+            coefficients = seasonal_info.get(
+                "fourier_coefficients"
+            )
+
+            if coefficients is None:
+                raise ValueError(
+                    "No Fourier coefficients found "
+                    "for SARMA."
+                )
+
+        else:
+            # single seasonality + SARIMA
+            coefficients = seasonal_info.get(
+                "coefficients"
+            )
+
+            if coefficients is None:
+                raise ValueError(
+                    f"No Fourier coefficients found "
+                    f"for subtype={subtype}."
+                )
+
+        # --------------------------------------------------
+        # Reconstruct Fourier term F_t
+        # --------------------------------------------------
+        t = np.arange(n)
+
+        fourier_term = np.zeros(
+            n,
+            dtype=float
+        )
+
+        for coefficient in coefficients:
+
+            k = coefficient["harmonic"]
+            sin_coef = coefficient["sin_coef"]
+            cos_coef = coefficient["cos_coef"]
+
+            fourier_term += (
+                sin_coef
+                * np.sin(
+                    2 * np.pi * k * t / period
+                )
+                +
+                cos_coef
+                * np.cos(
+                    2 * np.pi * k * t / period
+                )
+            )
+
+        scale_factor = seasonal_info.get(
+            "scale_factor",
+            1.0
+        )
+
+        fourier_term *= scale_factor
+
+        # --------------------------------------------------
+        # SARIMA special case
+        #
+        # (1 - B^s) Y_t = F_t + epsilon_t
+        #
+        # F_t must therefore be seasonally integrated
+        # before it represents seasonal context in
+        # the observed Y_t domain.
+        # --------------------------------------------------
+        if subtype == "sarima":
+
+            seasonal_context = np.zeros(
+                n,
+                dtype=float
+            )
+
+            for i in range(n):
+
+                if i < period:
+                    seasonal_context[i] = (
+                        fourier_term[i]
+                    )
+
+                else:
+                    seasonal_context[i] = (
+                        seasonal_context[
+                            i - period
+                        ]
+                        + fourier_term[i]
+                    )
+
+        else:
+            # Single, multiple, SARMA:
+            # Fourier component is already in level domain.
+            seasonal_context = fourier_term
+
+        return period, seasonal_context
     
     def generate_contextual_anomalies(
         self,
         df,
+        seasonal_info,
         num_anomalies=1,
         location=None,
-        scale_factor=1,
         anomaly_strength=1,
-        seasonal_period=None,
         max_attempts=10,
         is_loc=None
     ):
         series_original = df["data"].copy()
         n = len(series_original)
+
+        # --------------------------------------------------
+        # Reconstruct an existing seasonal context
+        # --------------------------------------------------
+        period, seasonal_context = (
+            self._get_fourier_context(
+                seasonal_info=seasonal_info,
+                n=n
+            )
+        )
 
         for attempt in range(max_attempts):
             min_distance = max(
@@ -999,74 +1178,31 @@ class TimeSeriesGenerator:
             # These store the actual anomaly intervals.
             anomaly_intervals = []
 
-            # Decide the seasonal period
-            if seasonal_period is not None:
-                period = seasonal_period
-                generate_seasonality = False
-            else:
-                min_period = max(5, n // 20)
-                max_period = n // 6
-
-                allowed = [5, 7, 12, 24, 30, 52, 90, 180]
-
-                periods = [
-                    p for p in allowed
-                    if min_period <= p <= max_period
-                ]
-
-                if not periods:
-                    continue
-
-                period = random.choice(periods)
-                generate_seasonality = True
-
-            # Generate or estimate seasonality
-            if generate_seasonality:
-                amplitude = (
-                    np.std(series)
-                    * np.random.uniform(1.5, 3)
-                )
-
-                seasonality = (
-                    amplitude
-                    * np.sin(
-                        2 * np.pi * np.arange(n) / period
-                    )
-                )
-
-                series += seasonality * scale_factor
-
-            else:
-                seasonality = np.sin(
-                    2 * np.pi * np.arange(n) / period
-                )
-
-            # Find contextual points from a clean sine wave
-            pure_seasonality = np.sin(
-                2 * np.pi * np.arange(n) / period
-            )
-
+            # --------------------------------------------------
+            # Find contextual points from the actual
+            # Fourier seasonal component
+            # --------------------------------------------------
             peaks = np.where(
                 (
-                    pure_seasonality[1:-1]
-                    > pure_seasonality[:-2]
+                    seasonal_context[1:-1]
+                    > seasonal_context[:-2]
                 )
                 &
                 (
-                    pure_seasonality[1:-1]
-                    > pure_seasonality[2:]
+                    seasonal_context[1:-1]
+                    > seasonal_context[2:]
                 )
             )[0] + 1
 
             valleys = np.where(
                 (
-                    pure_seasonality[1:-1]
-                    < pure_seasonality[:-2]
+                    seasonal_context[1:-1]
+                    < seasonal_context[:-2]
                 )
                 &
                 (
-                    pure_seasonality[1:-1]
-                    < pure_seasonality[2:]
+                    seasonal_context[1:-1]
+                    < seasonal_context[2:]
                 )
             )[0] + 1
 
@@ -1074,7 +1210,9 @@ class TimeSeriesGenerator:
                 [peaks, valleys]
             )
 
+            # --------------------------------------------------
             # Determine candidate regions
+            # --------------------------------------------------
             if num_anomalies == 1:
                 if location == "beginning":
                     candidate_range = np.arange(
@@ -1124,7 +1262,9 @@ class TimeSeriesGenerator:
                 )
                 continue
 
+            # --------------------------------------------------
             # Select anomaly centers with spacing
+            # --------------------------------------------------
             candidates = candidate_indices.copy()
             np.random.shuffle(candidates)
 
@@ -1132,14 +1272,19 @@ class TimeSeriesGenerator:
                 if all(
                     abs(center - previous_center)
                     >= min_distance
-                    for previous_center in selected_starts
+                    for previous_center
+                    in selected_starts
                 ):
                     selected_starts.append(center)
 
-                if len(selected_starts) == num_anomalies:
+                if (
+                    len(selected_starts)
+                    == num_anomalies
+                ):
                     break
 
-            # Fill remaining anomalies without spacing if necessary
+            # Fill remaining anomalies without spacing
+            # if necessary
             if len(selected_starts) < num_anomalies:
                 remaining = list(
                     set(candidate_indices)
@@ -1151,16 +1296,24 @@ class TimeSeriesGenerator:
                 for center in remaining:
                     selected_starts.append(center)
 
-                    if len(selected_starts) == num_anomalies:
+                    if (
+                        len(selected_starts)
+                        == num_anomalies
+                    ):
                         break
 
             if len(selected_starts) == 0:
                 continue
 
+            # --------------------------------------------------
             # Apply contextual anomalies
+            # --------------------------------------------------
             for center in selected_starts:
                 anomaly_length = min(
-                    max(int(period * 0.5), 10),
+                    max(
+                        int(period * 0.5),
+                        10
+                    ),
                     int(0.2 * n)
                 )
 
@@ -1174,11 +1327,18 @@ class TimeSeriesGenerator:
                     start + anomaly_length
                 )
 
-                # Store the actual anomaly interval.
-                anomaly_intervals.append((start, end))
+                anomaly_intervals.append(
+                    (start, end)
+                )
 
-                local_season = seasonality[start:end]
+                # Actual Fourier seasonal context
+                # associated with the chosen period.
+                local_season = (
+                    seasonal_context[start:end]
+                )
 
+                # Locally violate/invert the expected
+                # seasonal context.
                 series.iloc[start:end] -= (
                     2
                     * local_season
@@ -1196,7 +1356,9 @@ class TimeSeriesGenerator:
 
             return df, None
 
-        # Sort anomaly intervals according to their start positions
+        # --------------------------------------------------
+        # Sort anomaly intervals
+        # --------------------------------------------------
         anomaly_intervals = sorted(
             anomaly_intervals,
             key=lambda interval: interval[0]
@@ -1212,13 +1374,38 @@ class TimeSeriesGenerator:
             for start, end in anomaly_intervals
         ])
 
+        # --------------------------------------------------
+        # Period meaning
+        # --------------------------------------------------
+        period_meanings = seasonal_info.get(
+            "period_meanings",
+            {}
+        )
+
+        period_meaning = period_meanings.get(
+            period,
+            self.get_period_meanings(period)
+        )
+
+        # --------------------------------------------------
+        # Metadata
+        # --------------------------------------------------
         info = {
             "type": "anomaly",
             "subtype": "contextual",
-            "num_anomalies": len(anomaly_intervals),
+            "num_anomalies": len(
+                anomaly_intervals
+            ),
             "location": location,
             "starts": anomaly_starts,
-            "ends": anomaly_ends
+            "ends": anomaly_ends,
+
+            # The seasonal component whose context
+            # was violated.
+            "periods": [period],
+            "period_meanings": {
+                period: period_meaning
+            }
         }
 
         df.loc[:, "data"] = series
@@ -1226,7 +1413,9 @@ class TimeSeriesGenerator:
         df.loc[:, "context_anom"] = 1
         df.loc[:, "seasonal"] = 1
 
+        # --------------------------------------------------
         # Create location labels only when requested
+        # --------------------------------------------------
         if is_loc is True:
             context_anom_label = np.zeros(
                 n,
@@ -1242,7 +1431,7 @@ class TimeSeriesGenerator:
             ] = context_anom_label
 
         return df, info
-
+    
     #TRENDS - DETERMINISTIC TRENDS
 
     def generate_deterministic_trend_linear(self, df, sign = None, slope= None, noise_std = None, intercept = 1, scale_factor = 1):
@@ -1869,7 +2058,7 @@ class TimeSeriesGenerator:
 
         return df, info
 
-    def generate_deterministic_sarma_series(
+    def generate_sarma_series(
         self,
         period=None,
         amplitude=None,
