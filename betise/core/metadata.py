@@ -60,8 +60,8 @@ def create_metadata_record(
     fractional_integrated=None,
     long_memory=None,
     d_parameter=None,
-    ar_order=None,
-    ma_order=None,
+    #ar_order=None,
+    #ma_order=None,
     # === ANOMALY ===
     anomaly_type=None,
     anomaly_shapes=None,
@@ -84,7 +84,7 @@ def create_metadata_record(
     location_contextual=None,
     # === NOISE & ETC ===
     noise_type=None,
-    noise_std=None,
+    #noise_std=None,
     sampling_frequency=None,
 ):
     """
