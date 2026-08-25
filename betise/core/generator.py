@@ -1149,7 +1149,8 @@ class TimeSeriesGenerator:
         location=None,
         anomaly_strength=1,
         max_attempts=10,
-        is_loc=None
+        is_loc=None,
+        scale_factor=1
     ):
         series_original = df["data"].copy()
         n = len(series_original)

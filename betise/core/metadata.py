@@ -58,7 +58,6 @@ def create_metadata_record(
     seasonality_period_meanings=None,
     seasonality_amplitudes=None,
 
-    seasonality_scale_factor=None,
     seasonality_num_harmonics=None,
     seasonality_fourier_coefficients=None,
 
@@ -168,7 +167,6 @@ def create_metadata_record(
         "seasonality_period_meanings": seasonality_period_meanings,
         "seasonality_amplitudes": seasonality_amplitudes,
 
-        "seasonality_scale_factor": seasonality_scale_factor,
         "seasonality_num_harmonics": seasonality_num_harmonics,
         "seasonality_fourier_coefficients": seasonality_fourier_coefficients,
 

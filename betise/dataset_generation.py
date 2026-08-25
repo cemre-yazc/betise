@@ -47,14 +47,13 @@ FEATURE_ORDER = [
 ]
 
 VOLATILITY_FEATURES   = {"arch", "garch", "egarch", "aparch"}
-SEASONALITY_FEATURES  = {"single_seasonality", "multiple_seasonality", "sarma", "sarima"}
 TREND_FEATURES        = {"linear_trend", "quadratic_trend", "cubic_trend", "exponential_trend"}
 BREAK_FEATURES        = {"mean_shift", "variance_shift", "trend_shift"}
 ANOMALY_FEATURES      = {"point_anomaly", "collective_anomaly", "contextual_anomaly"}
 
 # Base-series category sets (used for metadata and initial classification)
 STOCHASTIC_BASE_SERIES = {"random_walk", "random_walk_drift", "ari", "ima", "arima"}
-SEASONAL_BASE_SERIES   = {"sarma", "sarima"}
+SEASONAL_BASE_SERIES   = {"sarma", "sarima", "single_seasonality", "multiple_seasonality"}
 VOLATILITY_BASE_SERIES = {"arch", "garch", "egarch", "aparch"}
 FRACTIONAL_BASE_SERIES = {"arfima"}
 
@@ -182,31 +181,16 @@ def generate_base_series(
         diff = _sample_value(base_params.get("diff", 1))
         return ts.generate_stochastic_trend(kind="arima", d=diff)
 
-    # Seasonal base: sarma, sarima
+    # Seasonal base: sarma, sarima, single_seasonality, multiple_seasonality
+    if base_series =="single":
+        return ts.generate_seasonality_from_base_series(kind="single")
+    if base_series =="multiple":
+        return ts.generate_seasonality_from_base_series(kind="multiple")
     if base_series == "sarma":
-        series, info = ts.generate_sarma_series(ts.length)
-        if series is None:
-            raise RuntimeError("SARMA base generation failed")
-        df = pd.DataFrame({
-            "time":       np.arange(ts.length),
-            "data":       series,
-            "stationary": np.zeros(ts.length, dtype=int),
-            "seasonal":   np.ones(ts.length, dtype=int),
-        })
-        return df, info
-
+        return ts.generate_seasonality_from_base_series(kind="sarma")
     if base_series == "sarima":
-        series, info = ts.generate_sarima_series(ts.length)
-        if series is None:
-            raise RuntimeError("SARIMA base generation failed")
-        df = pd.DataFrame({
-            "time":       np.arange(ts.length),
-            "data":       series,
-            "stationary": np.zeros(ts.length, dtype=int),
-            "seasonal":   np.ones(ts.length, dtype=int),
-        })
-        return df, info
-
+        return ts.generate_seasonality_from_base_series(kind="sarima")
+    
     # Volatility base: arch, garch, egarch, aparch
     if base_series in VOLATILITY_BASE_SERIES:
         return ts.generate_volatility(kind=base_series)
@@ -242,53 +226,6 @@ def apply_feature(
     if feature_name in VOLATILITY_FEATURES:
         vol_df, info = ts.generate_volatility(kind=feature_name)
         df.loc[:, "data"] = vol_df["data"].values
-        return df, info
-
-    # ── Seasonality overlay ───────────────────────────────────────────────────
-    if feature_name == "single_seasonality":
-        p = params_cfg.get("seasonality", {}).get("single_seasonality", {})
-        period    = _sample_value(p.get("period"))    if "period"    in p else None
-        amplitude = _sample_value(p.get("amplitude")) if "amplitude" in p else None
-        df, info = ts.generate_single_seasonality(df, period=period, amplitude=amplitude)
-        state["seasonal_period"] = info.get("period")
-        return df, info
-
-    if feature_name == "multiple_seasonality":
-        p = params_cfg.get("seasonality", {}).get("multiple_seasonality", {})
-        num_components = int(feature_cfg.get("num_components", p.get("num_components", 2)))
-        periods_pool   = p.get("periods")
-        periods = None
-        if isinstance(periods_pool, list) and periods_pool:
-            size    = min(num_components, len(periods_pool))
-            periods = random.sample(periods_pool, size)
-        amp_cfg = p.get("amplitudes")
-        amplitudes = None
-        if amp_cfg is not None and periods is not None:
-            amplitudes = [_sample_value(amp_cfg) for _ in range(len(periods))]
-        df, info = ts.generate_multiple_seasonality(
-            df, num_components=num_components, periods=periods, amplitudes=amplitudes)
-        periods_meta = info.get("periods") or []
-        state["seasonal_period"] = periods_meta[0] if periods_meta else None
-        return df, info
-
-    if feature_name == "sarma":
-        series, info = ts.generate_sarma_series(ts.length)
-        if series is None:
-            raise RuntimeError("SARMA generation failed")
-        # Series is already z-normalized inside generator — do not normalize again
-        df.loc[:, "data"]     = series
-        df.loc[:, "seasonal"] = 1
-        state["seasonal_period"] = info.get("period")
-        return df, info
-
-    if feature_name == "sarima":
-        series, info = ts.generate_sarima_series(ts.length)
-        if series is None:
-            raise RuntimeError("SARIMA generation failed")
-        # Series is already z-normalized inside generator — do not normalize again
-        df.loc[:, "data"]     = series
-        df.loc[:, "seasonal"] = 1
-        state["seasonal_period"] = info.get("period")
         return df, info
 
     # ── Trend overlays ────────────────────────────────────────────────────────
@@ -383,7 +320,7 @@ def apply_feature(
         return ts.generate_collective_anomalies(
             df, num_anomalies=num_anomalies, location=location, 
             anomaly_shapes= anomaly_shapes, scale_factor=scale_factor)
-    if feature_name in {"collective_anomaly", "contextual_anomaly"}:
+    if feature_name in {"collective_anomaly"}:
         p            = params_cfg.get("anomalies", {}).get(feature_name, {})
         mode         = feature_cfg.get("mode", "single")
         scale_factor = _sample_value(p.get("scale_factor", 1.0))
@@ -392,6 +329,29 @@ def apply_feature(
         return ts.generate_contextual_anomalies(
             df, num_anomalies=num_anomalies, location=location,
             scale_factor=scale_factor, seasonal_period=state.get("seasonal_period"))
+
+    if feature_name == "contextual_anomaly":
+        p            = params_cfg.get("anomalies", {}).get(feature_name, {})
+        mode         = feature_cfg.get("mode", "single")
+        location     = feature_cfg.get("location", "middle") if mode == "single" else None
+        num_anomalies = _resolve_count(feature_cfg.get("num_anomalies"), 2, 4) if mode == "multiple" else 1
+    
+        # Get the seasonal_info from state (populated when a seasonality base/feature was applied)
+        seasonal_info = state.get("seasonal_info")
+    
+        # If no seasonal base was used, contextual anomalies cannot be applied
+        if seasonal_info is None:
+            raise ValueError(
+                "contextual_anomaly requires a seasonal base series or seasonal feature. "
+                "Please use base_series='single_seasonality', 'multiple_seasonality', 'sarma', or 'sarima', "
+                "or enable a seasonality feature first."
+            )
+    
+        return ts.generate_contextual_anomalies(
+            df, 
+            seasonal_info=seasonal_info,
+            num_anomalies=num_anomalies, 
+            location=location)
 
     return df, info
 
@@ -429,26 +389,6 @@ def update_metadata(
         meta["is_stationary"]    = 0
         return meta
 
-    if feature_name in SEASONALITY_FEATURES:
-        sub_map = {
-            "single_seasonality":   0,
-            "multiple_seasonality": 1,
-            "sarma":  2,
-            "sarima": 3,
-        }
-        _set_primary(meta, "seasonality", 4, feature_name, sub_map.get(feature_name, 0))
-        meta["is_stationary"]   = 0
-        meta["is_seasonal"]     = 1
-        meta["seasonality_type"] = feature_name
-        if "period"     in info: meta["seasonality_periods"]   = [info.get("period")]
-        if "periods"    in info: meta["seasonality_periods"]   = info.get("periods")
-        if "amplitude"  in info: meta["seasonality_amplitudes"] = [info.get("amplitude")]
-        if "amplitudes" in info: meta["seasonality_amplitudes"] = info.get("amplitudes")
-        # Seasonal model orders (populated for sarma / sarima overlays)
-        meta["seasonal_ar_order"]   = info.get("seasonal_ar_order")
-        meta["seasonal_ma_order"]   = info.get("seasonal_ma_order")
-        meta["seasonal_difference"] = info.get("seasonal_diff")
-        return meta
 
     if feature_name in TREND_FEATURES:
         sub_map = {
@@ -561,9 +501,9 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
 
         # ── Extract stochastic / ARIMA base parameters ────────────────────────
         drift_value    = base_info.get("drift")
-        arima_ar_order = base_info.get("ar_order")
-        arima_ma_order = base_info.get("ma_order")
-        arima_diff     = base_info.get("diff")
+        ar_order = base_info.get("ar_order")
+        ma_order = base_info.get("ma_order")
+        diff     = base_info.get("diff")
 
         # ── Determine initial primary category from base type ─────────────────
         if base_series in SEASONAL_BASE_SERIES:
@@ -590,14 +530,21 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             "base_series":      base_series,
         }
 
-        # ── Populate seasonality metadata when sarma/sarima is the base ───────
+        # ── Populate seasonality metadata when sarma/sarima/single seasonality/multiple seasonality is the base ───────
         if base_series in SEASONAL_BASE_SERIES:
             meta["seasonality_type"]    = base_series
             meta["is_seasonal"]         = 1
             meta["seasonality_periods"] = [base_info.get("period")] if base_info.get("period") else None
             meta["seasonal_ar_order"]   = base_info.get("seasonal_ar_order")
             meta["seasonal_ma_order"]   = base_info.get("seasonal_ma_order")
+            meta["seasonal_ar_coefs"]    = base_info.get("seasonal_ar_coefs")
+            meta["seasonal_ma_coefs"]    = base_info.get("seasonal_ma_coefs")
             meta["seasonal_difference"] = base_info.get("seasonal_diff")
+            meta["seasonality_amplitudes"] = base_info.get("amplitudes")
+            meta['seasonality_period_meanings'] = base_info.get("period_meanings")
+            meta["seasonality_num_harmonics"] = base_info.get("num_harmonics")
+            meta["seasonality_fourier_coefficients"] = base_info.get("fourier_coefficients")
+            meta["seasonal_unit_root"] = base_info.get("seasonal_unit_root")
 
         # ── Populate volatility metadata when arch/garch is the base ──────────
         if base_series in VOLATILITY_BASE_SERIES:
@@ -649,17 +596,20 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             trend_coef_b=meta.get("trend_coef_b"),
             trend_coef_c=meta.get("trend_coef_c"),
             stochastic_type=base_series if base_series in STOCHASTIC_BASE_SERIES else None,
-            drift_value=drift_value,
-            arima_ar_order=arima_ar_order,
-            arima_ma_order=arima_ma_order,
-            arima_diff=arima_diff,
+            drift_value=meta.get("drift_value"),
             is_seasonal=meta.get("is_seasonal"),
             seasonality_type=meta.get("seasonality_type"),
             seasonality_periods=meta.get("seasonality_periods"),
             seasonality_amplitudes=meta.get("seasonality_amplitudes"),
             seasonal_ar_order=meta.get("seasonal_ar_order"),
             seasonal_ma_order=meta.get("seasonal_ma_order"),
+            seasonal_ar_coefs=meta.get("seasonal_ar_coefs"),
+            seasonal_ma_coefs=meta.get("seasonal_ma_coefs"),
             seasonal_difference=meta.get("seasonal_difference"),
+            seasonality_period_meanings=meta.get("seasonality_period_meanings"),
+            seasonality_num_harmonics=meta.get("seasonality_num_harmonics"),
+            seasonality_fourier_coefficients=meta.get("seasonality_fourier_coefficients"),
+            seasonal_unit_root=meta.get("seasonal_unit_root"),
             volatility_type=meta.get("volatility_type"),
             volatility_alpha=meta.get("volatility_alpha"),
             volatility_beta=meta.get("volatility_beta"),
