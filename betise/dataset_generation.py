@@ -588,8 +588,6 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             "sub_category":     base_series,
             "sub_label":        0,
             "base_series":      base_series,
-            "order":            base_order,
-            "base_coefs":       base_coefs,
         }
 
         # ── Populate seasonality metadata when sarma/sarima is the base ───────
@@ -644,8 +642,6 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             sub_category=meta.get("sub_category"),
             sub_label=meta.get("sub_label"),
             base_series=meta.get("base_series"),
-            order=meta.get("order"),
-            base_coefs=meta.get("base_coefs"),
             trend_type=meta.get("trend_type"),
             trend_slope=meta.get("trend_slope"),
             trend_intercept=meta.get("trend_intercept"),
