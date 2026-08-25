@@ -72,7 +72,10 @@ def test_collective_anomaly():
 
 
 def test_contextual_anomaly():
-    df = _gen("ar", {"contextual_anomaly": {"enabled": True}})
+    df = _gen("ar", {
+        "single_seasonality": {"enabled": True},
+        "contextual_anomaly": {"enabled": True}
+    })
     assert len(df) == LENGTH
     assert np.isfinite(df["data"].values).all()
 
