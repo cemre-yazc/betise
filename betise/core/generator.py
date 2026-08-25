@@ -2296,7 +2296,7 @@ class TimeSeriesGenerator:
             )
 
         elif kind == "sarma":
-            df, info = self.generate_deterministic_sarma_series(
+            df, info = self.generate_sarma_series(
                 period=period,
                 num_harmonics=1
             )

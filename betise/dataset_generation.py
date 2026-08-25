@@ -182,9 +182,9 @@ def generate_base_series(
         return ts.generate_stochastic_trend(kind="arima", d=diff)
 
     # Seasonal base: sarma, sarima, single_seasonality, multiple_seasonality
-    if base_series =="single":
+    if base_series =="single_seasonality":
         return ts.generate_seasonality_from_base_series(kind="single")
-    if base_series =="multiple":
+    if base_series =="multiple_seasonality":
         return ts.generate_seasonality_from_base_series(kind="multiple")
     if base_series == "sarma":
         return ts.generate_seasonality_from_base_series(kind="sarma")
@@ -320,15 +320,6 @@ def apply_feature(
         return ts.generate_collective_anomalies(
             df, num_anomalies=num_anomalies, location=location, 
             anomaly_shapes= anomaly_shapes, scale_factor=scale_factor)
-    if feature_name in {"collective_anomaly"}:
-        p            = params_cfg.get("anomalies", {}).get(feature_name, {})
-        mode         = feature_cfg.get("mode", "single")
-        scale_factor = _sample_value(p.get("scale_factor", 1.0))
-        location     = feature_cfg.get("location", "middle") if mode == "single" else None
-        num_anomalies = _resolve_count(feature_cfg.get("num_anomalies"), 2, 4) if mode == "multiple" else 1
-        return ts.generate_contextual_anomalies(
-            df, num_anomalies=num_anomalies, location=location,
-            scale_factor=scale_factor, seasonal_period=state.get("seasonal_period"))
 
     if feature_name == "contextual_anomaly":
         p            = params_cfg.get("anomalies", {}).get(feature_name, {})
