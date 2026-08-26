@@ -49,15 +49,6 @@ def test_trend(feat, extra):
         f"{feat}: trend metadata not recorded"
 
 
-# ── Seasonality features ──────────────────────────────────────────────────────
-@pytest.mark.parametrize("feat", ["single_seasonality", "multiple_seasonality"])
-def test_seasonality(feat):
-    df = _gen("ar", {feat: {"enabled": True}})
-    vals = df["data"].values
-    assert len(vals) == LENGTH
-    assert np.isfinite(vals).all()
-
-
 # ── Anomaly features ──────────────────────────────────────────────────────────
 def test_point_anomaly_spike():
     df = _gen("ar", {"point_anomaly": {"enabled": True, "is_spike": True}})
@@ -87,13 +78,11 @@ def test_structural_break(feat):
 
 # ── Combined features ─────────────────────────────────────────────────────────
 def test_trend_plus_seasonality():
-    df = _gen("ar", {
-        "linear_trend":       {"enabled": True, "direction": "upward"},
-        "single_seasonality": {"enabled": True},
+    df = _gen("single_seasonality", {
+    "linear_trend": {"enabled": True, "direction": "upward"},
     })
     assert len(df) == LENGTH
     assert np.isfinite(df["data"].values).all()
-
 
 def test_trend_plus_anomaly():
     df = _gen("ar", {

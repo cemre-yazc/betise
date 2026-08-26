@@ -30,10 +30,6 @@ FEATURE_ORDER = [
     "garch",
     "egarch",
     "aparch",
-    "single_seasonality",
-    "multiple_seasonality",
-    "sarma",
-    "sarima",
     "linear_trend",
     "quadratic_trend",
     "cubic_trend",
@@ -486,12 +482,12 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
         ts     = TimeSeriesGenerator(length=length)
 
         df, base_info = generate_base_series(ts, base_series, params_cfg)
-        state: Dict[str, Any] = {"seasonal_period": None}
+        state: Dict[str, Any] = {"seasonal_period": None, "seasonal_info": None}
 
         base_coefs, base_order = _base_metadata(base_series, base_info)
 
         # ── Extract stochastic / ARIMA base parameters ────────────────────────
-        drift_value    = base_info.get("drift")
+        drift_value = base_info.get("drift")
         ar_order = base_info.get("ar_order")
         ma_order = base_info.get("ma_order")
         diff     = base_info.get("diff")
@@ -525,7 +521,7 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
         if base_series in SEASONAL_BASE_SERIES:
             meta["seasonality_type"]    = base_series
             meta["is_seasonal"]         = 1
-            meta["seasonality_periods"] = [base_info.get("period")] if base_info.get("period") else None
+            meta["seasonality_periods"] = base_info.get("periods") if base_info.get("periods") else None
             meta["seasonal_ar_order"]   = base_info.get("seasonal_ar_order")
             meta["seasonal_ma_order"]   = base_info.get("seasonal_ma_order")
             meta["seasonal_ar_coefs"]    = base_info.get("seasonal_ar_coefs")
@@ -536,6 +532,7 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             meta["seasonality_num_harmonics"] = base_info.get("num_harmonics")
             meta["seasonality_fourier_coefficients"] = base_info.get("fourier_coefficients")
             meta["seasonal_unit_root"] = base_info.get("seasonal_unit_root")
+            state["seasonal_info"] = base_info
 
         # ── Populate volatility metadata when arch/garch is the base ──────────
         if base_series in VOLATILITY_BASE_SERIES:

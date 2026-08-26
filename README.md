@@ -35,7 +35,6 @@ cfg = load_config(dataset={
     "output_name":  "ar_trend.parquet",
     "features": {
         "linear_trend":       {"enabled": True, "direction": "upward"},
-        "single_seasonality": {"enabled": True},
         "point_anomaly":      {"enabled": True, "is_spike": True},
     },
 })
