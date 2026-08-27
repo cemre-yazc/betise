@@ -37,19 +37,6 @@
     "aparch": {
       "enabled": false
     },
-    "single_seasonality": {
-      "enabled": false
-    },
-    "multiple_seasonality": {
-      "enabled": false,
-      "num_components": 2
-    },
-    "sarma": {
-      "enabled": false
-    },
-    "sarima": {
-      "enabled": false
-    },
     "mean_shift": {
       "enabled": false,
       "mode": "single",

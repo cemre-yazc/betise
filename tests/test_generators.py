@@ -10,6 +10,7 @@ import pytest
 
 from betise import generate_dataframe, load_config
 
+
 LENGTH = 200
 SEED = 42
 
@@ -45,7 +46,7 @@ def test_stochastic(base):
 
 
 # ── Seasonal ─────────────────────────────────────────────────────────────────
-@pytest.mark.parametrize("base", ["sarma", "sarima"])
+@pytest.mark.parametrize("base", ["sarma", "sarima", "single_seasonality", "multiple_seasonality"])
 def test_seasonal(base):
     _check(_gen(base), base)
 

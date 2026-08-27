@@ -35,7 +35,6 @@ cfg = load_config(dataset={
     "output_name":  "ar_trend.parquet",
     "features": {
         "linear_trend":       {"enabled": True, "direction": "upward"},
-        "single_seasonality": {"enabled": True},
         "point_anomaly":      {"enabled": True, "is_spike": True},
     },
 })
@@ -48,7 +47,7 @@ run(cfg)
 |---|---|
 | Stationary | `ar`, `ma`, `arma`, `white_noise` |
 | Stochastic trend | `random_walk`, `random_walk_drift`, `ari`, `ima`, `arima` |
-| Seasonal | `sarma`, `sarima` |
+| Seasonal | `sarma`, `sarima`, `single_seasonality`, `multiple_seasonality` |
 | Volatility | `arch`, `garch`, `egarch`, `aparch` |
 | Fractional | `arfima` |
 
@@ -59,7 +58,6 @@ Multiple features can be stacked on top of any base type:
 | Category | Features |
 |---|---|
 | Trend | `linear_trend`, `quadratic_trend`, `cubic_trend`, `exponential_trend` |
-| Seasonality | `single_seasonality`, `multiple_seasonality` |
 | Anomaly | `point_anomaly`, `collective_anomaly`, `contextual_anomaly` |
 | Structural break | `mean_shift`, `variance_shift`, `trend_shift` |
 
