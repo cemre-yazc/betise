@@ -918,6 +918,63 @@ class TimeSeriesGenerator:
 
         return series, info
 
+    def generate_volatility(
+        self,
+        kind=None,
+        as_innovations=False):
+        """
+        Generate a volatility process.
+
+        Parameters
+        ----------
+        kind : str, optional
+            One of: arch, garch, egarch, aparch.
+            If None, one is selected randomly.
+
+        as_innovations : bool
+            If True, return the generated volatility series directly
+            so that it can be used as the innovation process of another
+            base model.
+
+            If False, return a standalone volatility DataFrame.
+        """
+
+        if kind is None:
+            kind = np.random.choice(self.volatile_base_distributions)
+
+        kind = str(kind).lower()
+
+        if kind == "arch":
+            series, info = self.generate_arch_series(self.length)
+
+        elif kind == "garch":
+            series, info = self.generate_garch_series(self.length)
+
+        elif kind == "egarch":
+            series, info = self.generate_egarch_series(self.length)
+
+        elif kind == "aparch":
+            series, info = self.generate_aparch_series(self.length)
+
+        else:
+            raise ValueError(
+                f"Invalid volatility process '{kind}'. "
+                f"Choose from {self.volatile_base_distributions}."
+            )
+
+        # Used as external innovations for another base model.
+        if as_innovations:
+            return np.asarray(series, dtype=float), info
+
+        # Standalone volatility base series.
+        df = pd.DataFrame({
+            "time": np.arange(self.length),
+            "data": np.asarray(series, dtype=float),
+            "stationary": np.ones(self.length,dtype=int),
+            "seasonal": np.zeros(self.length,dtype=int)})
+
+        return df, info
+
     def generate_stationary_base_series(
         self,
         distribution=None,

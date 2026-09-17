@@ -354,41 +354,21 @@ def generate_base_series(
 
     if base_series == "sarima":
 
-        p = seasonality_cfg.get(
-            "sarima",
-            {}
-        )
-
+        p = seasonality_cfg.get("sarima",{})
         period = p.get("period")
 
         if isinstance(period, list):
-            valid_periods = ts.get_valid_calendar_periods(
-                allowed_periods=period
-            )
+            valid_periods = ts.get_valid_calendar_periods(allowed_periods=period)
+            period = (int(random.choice(valid_periods)) if valid_periods else None)
 
-            period = (
-                int(random.choice(valid_periods))
-                if valid_periods
-                else None
-            )
+        amplitude = (_sample_value(p["amplitude"]) if "amplitude" in p else None)
 
-        amplitude = (
-            _sample_value(p["amplitude"])
-            if "amplitude" in p
-            else None
-        )
+        d = int(_sample_value(p.get("diff", 1)))
 
-        d = int(
-            _sample_value(
-            p.get("diff", 1)
-        )
-    )
-
-    return ts.generate_deterministic_sarima(
-        period=period,
-        amplitude=amplitude,
-        d=d
-    )
+        return ts.generate_deterministic_sarima(
+            period=period,
+            amplitude=amplitude,
+            d=d)
     
     # Volatility base: arch, garch, egarch, aparch
     if base_series in VOLATILITY_BASE_SERIES:
