@@ -5,6 +5,10 @@ __pycache__/
 *.pyd
 *.so
 
+*.py[cod]
+.ruff_cache/
+
+
 # Distribution / packaging
 dist/
 build/

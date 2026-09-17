@@ -23,7 +23,8 @@ from betise.core.metadata import (
 from betise.utils.helpers import add_indices_column
 
 # ── Feature pipeline order ────────────────────────────────────────────────────
-# Applied in this exact sequence: volatility → seasonality → trend → break → anomaly
+# Volatility combinations are handled before base-series generation through the innovation process.
+# Remaining overlays are applied afterward in feature order.
 
 FEATURE_ORDER = [
     "arch",
@@ -148,34 +149,53 @@ def generate_base_series(
     ts: TimeSeriesGenerator,
     base_series: str,
     params_cfg: Dict[str, Any],
+    innovations=None,
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     base_params = params_cfg.get("base", {}).get(base_series, {})
 
     # Stationary: ar, ma, arma, white_noise
     if base_series in {"white_noise", "ar", "ma", "arma"}:
-        return ts.generate_stationary_base_series(distribution=base_series)
+        return ts.generate_stationary_base_series(distribution=base_series, innovations=innovations)
 
     # Stochastic: random_walk
     if base_series == "random_walk":
         sigma = _sample_value(base_params.get("sigma", 1.0))
-        return ts.generate_stochastic_trend(kind="rw", noise_std=sigma)
+        return ts.generate_stochastic_trend(
+            kind="rw",
+            noise_std=sigma,
+            innovations=innovations)
 
     # Stochastic: random_walk_drift
     if base_series == "random_walk_drift":
         drift = _sample_value(base_params.get("drift", [0.01, 0.1]))
         sigma = _sample_value(base_params.get("sigma", 1.0))
-        return ts.generate_stochastic_trend(kind="rwd", drift=drift, noise_std=sigma)
+        return ts.generate_stochastic_trend(
+            kind="rwd",
+            drift=drift,
+            noise_std=sigma,
+            innovations=innovations)
 
-    # Integrated: ari, ima, arima
+    # Integrated stochastic: ari, ima, arima
     if base_series == "ari":
         diff = _sample_value(base_params.get("diff", 1))
-        return ts.generate_stochastic_trend(kind="ari", d=diff)
+        return ts.generate_stochastic_trend(
+            kind="ari",
+            d=diff,
+            innovations=innovations)
+
     if base_series == "ima":
         diff = _sample_value(base_params.get("diff", 1))
-        return ts.generate_stochastic_trend(kind="ima", d=diff)
+        return ts.generate_stochastic_trend(
+            kind="ima",
+            d=diff,
+            innovations=innovations)
+
     if base_series == "arima":
         diff = _sample_value(base_params.get("diff", 1))
-        return ts.generate_stochastic_trend(kind="arima", d=diff)
+        return ts.generate_stochastic_trend(
+            kind="arima",
+            d=diff,
+            innovations=innovations)
 
     # Seasonal base: sarma, sarima, single_seasonality, multiple_seasonality
     if base_series =="single_seasonality":
@@ -217,12 +237,6 @@ def apply_feature(
     state: Dict[str, Any],
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     info: Dict[str, Any] = {}
-
-    # ── Volatility overlay ────────────────────────────────────────────────────
-    if feature_name in VOLATILITY_FEATURES:
-        vol_df, info = ts.generate_volatility(kind=feature_name)
-        df.loc[:, "data"] = vol_df["data"].values
-        return df, info
 
     # ── Trend overlays ────────────────────────────────────────────────────────
     if feature_name == "linear_trend":
@@ -478,19 +492,91 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
     label = _build_label(base_series, enabled_features, feature_cfgs)
 
     for i in range(num_series):
-        length = int(np.random.randint(int(length_range[0]), int(length_range[1]) + 1))
-        ts     = TimeSeriesGenerator(length=length)
+        length = int(
+            np.random.randint(
+                int(length_range[0]),
+                int(length_range[1]) + 1
+            )
+        )
 
-        df, base_info = generate_base_series(ts, base_series, params_cfg)
-        state: Dict[str, Any] = {"seasonal_period": None, "seasonal_info": None}
+        ts = TimeSeriesGenerator(
+            length=length
+        )
+
+        # ---------------------------------------------------------
+        # Prepare volatility innovations BEFORE base generation
+        # ---------------------------------------------------------
+
+        volatility_features = [
+            name
+            for name in enabled_features
+            if name in VOLATILITY_FEATURES
+        ]
+
+        if len(volatility_features) > 1:
+            raise ValueError(
+                "Only one volatility mechanism can be enabled "
+                "for a series."
+            )
+
+        volatility_feature = (
+            volatility_features[0]
+            if volatility_features
+            else None
+        )
+
+        volatility_info = None
+        innovations = None
+
+        if volatility_feature is not None:
+
+            # White Noise + Volatility is not a valid combination.
+            if base_series == "white_noise":
+                raise ValueError(
+                    "White Noise + Volatility is not allowed."
+                )
+
+        # Currently implemented and validated:
+        # Stationary + Volatility
+        # Stochastic + Volatility
+        if (
+            base_series in {"ar", "ma", "arma"}
+            or base_series in STOCHASTIC_BASE_SERIES
+        ):
+
+            innovations, volatility_info = (
+                ts.generate_volatility(
+                    kind=volatility_feature,
+                    as_innovations=True))
+
+        # Volatility + Volatility is not a valid combination
+        elif base_series in VOLATILITY_BASE_SERIES:
+            raise ValueError(
+                "A volatility base series cannot be combined with another volatility feature.")
+
+        # Seasonal / Fractional combinations will be
+        # implemented separately later.
+        else:
+            raise NotImplementedError(
+                f"{base_series} + {volatility_feature} has not yet been implemented in the dataset generation pipeline.")
+
+        # ---------------------------------------------------------
+        # Generate the base series
+        # ---------------------------------------------------------
+
+        df, base_info = generate_base_series(
+            ts,
+            base_series,
+            params_cfg,
+            innovations=innovations
+        )
+
+        state: Dict[str, Any] = {
+            "seasonal_period": None,
+            "seasonal_info": None
+        }
 
         base_coefs, base_order = _base_metadata(base_series, base_info)
-
-        # ── Extract stochastic / ARIMA base parameters ────────────────────────
-        drift_value = base_info.get("drift")
-        ar_order = base_info.get("ar_order")
-        ma_order = base_info.get("ma_order")
-        diff     = base_info.get("diff")
 
         # ── Determine initial primary category from base type ─────────────────
         if base_series in SEASONAL_BASE_SERIES:
@@ -516,6 +602,27 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             "sub_label":        0,
             "base_series":      base_series,
         }
+
+        # ── Populate stochastic base metadata ───────────────────────────────
+        if base_series in STOCHASTIC_BASE_SERIES:
+            meta["drift_value"] = base_info.get("drift")
+            meta["difference"] = base_info.get("diff")
+
+            meta["ar_order"] = base_info.get("ar_order")
+            meta["ma_order"] = base_info.get("ma_order")
+
+            meta["ar_coefs"] = base_info.get("ar_coefs")
+            meta["ma_coefs"] = base_info.get("ma_coefs")
+
+
+        # ── Populate volatility metadata when volatility is used as innovations ──────
+        if volatility_feature is not None and volatility_info is not None:
+            meta = update_metadata(
+                meta,
+                volatility_feature,
+                volatility_info,
+                feature_cfgs.get(volatility_feature, {})
+            )
 
         # ── Populate seasonality metadata when sarma/sarima/single seasonality/multiple seasonality is the base ───────
         if base_series in SEASONAL_BASE_SERIES:
@@ -556,9 +663,24 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
 
         # ── Apply feature pipeline ────────────────────────────────────────────
         for feature_name in enabled_features:
-            feature_cfg_item = feature_cfgs.get(feature_name, {})
-            df, info = apply_feature(ts, df, feature_name, feature_cfg_item, params_cfg, state)
-            meta = update_metadata(meta, feature_name, info, feature_cfg_item)
+            # Volatility was already incorporated into the base process through its innovations.
+            if feature_name in VOLATILITY_FEATURES:
+                continue
+            feature_cfg_item = feature_cfgs.get(
+                feature_name,
+                {})
+            df, info = apply_feature(
+                ts,
+                df,
+                feature_name,
+                feature_cfg_item,
+                params_cfg,
+                state)
+            meta = update_metadata(
+                meta,
+                feature_name,
+                info,
+                feature_cfg_item)
 
         # ── Final stationarity / seasonality flags from df columns ────────────
         meta["is_stationary"] = int(df["stationary"].iloc[0]) if "stationary" in df.columns else meta.get("is_stationary", 1)
@@ -577,6 +699,10 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             sub_category=meta.get("sub_category"),
             sub_label=meta.get("sub_label"),
             base_series=meta.get("base_series"),
+            ar_order=meta.get("ar_order"),
+            ma_order=meta.get("ma_order"),
+            ar_coefs=meta.get("ar_coefs"),
+            ma_coefs=meta.get("ma_coefs"),
             trend_type=meta.get("trend_type"),
             trend_slope=meta.get("trend_slope"),
             trend_intercept=meta.get("trend_intercept"),
@@ -584,6 +710,7 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             trend_coef_b=meta.get("trend_coef_b"),
             trend_coef_c=meta.get("trend_coef_c"),
             stochastic_type=base_series if base_series in STOCHASTIC_BASE_SERIES else None,
+            difference=meta.get("difference"),
             drift_value=meta.get("drift_value"),
             is_seasonal=meta.get("is_seasonal"),
             seasonality_type=meta.get("seasonality_type"),
@@ -610,8 +737,6 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             fractional_integrated=meta.get("fractional_integrated"),
             long_memory=meta.get("long_memory"),
             d_parameter=meta.get("d_parameter"),
-            ar_order=meta.get("ar_order"),
-            ma_order=meta.get("ma_order"),
             anomaly_type=meta.get("anomaly_type"),
             anomaly_count=meta.get("anomaly_count"),
             anomaly_indices=meta.get("anomaly_indices"),
@@ -638,7 +763,13 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
     # Normalize object columns: mixed int/str/None across base types causes
     # PyArrow type errors. Cast all object-dtype columns to str consistently,
     # but preserve numeric types for fractional parameters.
-    numeric_cols = {'d_parameter', 'ar_order', 'ma_order', 'fractional_integrated', 'long_memory'}
+    numeric_cols = {
+    'd_parameter',
+    'difference',
+    'ar_order',
+    'ma_order',
+    'fractional_integrated',
+    'long_memory'}
     for _col in combined_df.select_dtypes(include="object").columns:
         if _col in numeric_cols:
             # Convert to numeric, coercing errors to NaN
