@@ -35,6 +35,7 @@ FEATURE_ORDER = [
     "quadratic_trend",
     "cubic_trend",
     "exponential_trend",
+    "damped_trend",
     "mean_shift",
     "variance_shift",
     "trend_shift",
@@ -44,7 +45,7 @@ FEATURE_ORDER = [
 ]
 
 VOLATILITY_FEATURES   = {"arch", "garch", "egarch", "aparch"}
-TREND_FEATURES        = {"linear_trend", "quadratic_trend", "cubic_trend", "exponential_trend"}
+TREND_FEATURES        = {"linear_trend", "quadratic_trend", "cubic_trend", "exponential_trend","damped_trend"}
 BREAK_FEATURES        = {"mean_shift", "variance_shift", "trend_shift"}
 ANOMALY_FEATURES      = {"point_anomaly", "collective_anomaly", "contextual_anomaly"}
 
@@ -198,14 +199,196 @@ def generate_base_series(
             innovations=innovations)
 
     # Seasonal base: sarma, sarima, single_seasonality, multiple_seasonality
-    if base_series =="single_seasonality":
-        return ts.generate_seasonality_from_base_series(kind="single")
-    if base_series =="multiple_seasonality":
-        return ts.generate_seasonality_from_base_series(kind="multiple")
+    seasonality_cfg = params_cfg.get("seasonality", {})
+
+    if base_series == "single_seasonality":
+
+        p = seasonality_cfg.get(
+            "single_seasonality",
+            {}
+        )
+
+        period_cfg = p.get("period")
+
+        if isinstance(period_cfg, list):
+            valid_periods = ts.get_valid_calendar_periods(
+                allowed_periods=period_cfg
+            )
+
+            if not valid_periods:
+                raise ValueError(
+                    "No valid configured period found for "
+                    "single_seasonality."
+                )
+
+            period = int(
+                random.choice(valid_periods)
+            )
+
+        else:
+            period = (
+                int(period_cfg)
+                if period_cfg is not None
+                else None
+            )
+
+        amplitude_cfg = p.get("amplitude")
+
+        amplitude = (
+            _sample_value(amplitude_cfg)
+            if amplitude_cfg is not None
+            else None
+        )
+
+        return ts.generate_single_seasonality(
+            period=period,
+            amplitude=amplitude
+        )
+
+
+    if base_series == "multiple_seasonality":
+
+        p = seasonality_cfg.get(
+            "multiple_seasonality",
+            {}
+        )
+
+        num_components = int(
+            p.get("num_components", 2)
+        )
+
+        period_candidates = p.get(
+            "periods"
+        )
+
+        selected_periods = None
+
+        if period_candidates is not None:
+
+            valid_periods = ts.get_valid_calendar_periods(
+                allowed_periods=period_candidates
+            )
+
+            if len(valid_periods) < num_components:
+                raise ValueError(
+                    f"multiple_seasonality needs "
+                    f"{num_components} valid periods, "
+                    f"but only {valid_periods} are available."
+                )
+
+            selected_periods = random.sample(
+                valid_periods,
+                num_components
+            )
+
+        amplitudes = None
+
+        amplitude_cfg = p.get(
+            "amplitudes"
+        )
+
+        if (
+            amplitude_cfg is not None
+            and selected_periods is not None
+        ):
+
+            if (
+                isinstance(amplitude_cfg, list)
+                and len(amplitude_cfg) == 2
+                and all(
+                    isinstance(x, (int, float))
+                    for x in amplitude_cfg
+                )
+            ):
+
+                low, high = amplitude_cfg
+
+                amplitudes = [
+                    float(
+                        np.random.uniform(
+                            low,
+                            high
+                        )
+                    )
+                    for _ in selected_periods
+                ]
+
+        return ts.generate_multiple_seasonality(
+            num_components=num_components,
+            periods=selected_periods,
+            amplitudes=amplitudes
+        )
+
+
     if base_series == "sarma":
-        return ts.generate_seasonality_from_base_series(kind="sarma")
+
+        p = seasonality_cfg.get(
+            "sarma",
+            {}
+        )
+
+        period = p.get("period")
+
+        if isinstance(period, list):
+            valid_periods = ts.get_valid_calendar_periods(
+                allowed_periods=period
+            )
+
+            period = (
+                int(random.choice(valid_periods))
+                if valid_periods
+                else None
+            )
+
+        amplitude = (
+            _sample_value(p["amplitude"])
+            if "amplitude" in p
+            else None
+        )
+
+        return ts.generate_deterministic_sarma(
+            period=period,
+            amplitude=amplitude
+        )
+
+
     if base_series == "sarima":
-        return ts.generate_seasonality_from_base_series(kind="sarima")
+
+        p = seasonality_cfg.get(
+            "sarima",
+            {}
+        )
+
+        period = p.get("period")
+
+        if isinstance(period, list):
+            valid_periods = ts.get_valid_calendar_periods(
+                allowed_periods=period
+            )
+
+            period = (
+                int(random.choice(valid_periods))
+                if valid_periods
+                else None
+            )
+
+        amplitude = (
+            _sample_value(p["amplitude"])
+            if "amplitude" in p
+            else None
+        )
+
+        d = int(
+            _sample_value(
+            p.get("diff", 1)
+        )
+    )
+
+    return ts.generate_deterministic_sarima(
+        period=period,
+        amplitude=amplitude,
+        d=d
+    )
     
     # Volatility base: arch, garch, egarch, aparch
     if base_series in VOLATILITY_BASE_SERIES:
@@ -268,6 +451,16 @@ def apply_feature(
         a    = _sample_value(p.get("a")) if "a" in p else None
         b    = _sample_value(p.get("b")) if "b" in p else None
         return ts.generate_deterministic_trend_exponential(df, sign=sign, a=a, b=b)
+
+    if feature_name == "damped_trend":
+        p = params_cfg.get("trends",{}).get("damped_trend",{})
+        sign = _parse_sign(feature_cfg.get("direction"))
+        a = (_sample_value(p.get("a")) if "a" in p else None)
+        if a is not None:
+            a = sign * abs(a)
+        b = (_sample_value(p.get("b")) if "b" in p else None)
+        damping_rate = (_sample_value(p.get("damping_rate")) if "damping_rate" in p else None)
+        return ts.generate_deterministic_trend_damped(df,sign=sign,a=a,b=b,damping_rate=damping_rate)
 
     # ── Structural breaks ─────────────────────────────────────────────────────
     if feature_name in {"mean_shift", "variance_shift"}:
@@ -397,6 +590,7 @@ def update_metadata(
             "quadratic_trend":   1,
             "cubic_trend":       2,
             "exponential_trend": 3,
+            "damped_trend": 4,
         }
         _set_primary(meta, "trend", 2, feature_name, sub_map.get(feature_name, 0))
         meta["is_stationary"]   = 0
@@ -406,6 +600,7 @@ def update_metadata(
         meta["trend_coef_a"]    = info.get("a")
         meta["trend_coef_b"]    = info.get("b")
         meta["trend_coef_c"]    = info.get("c")
+        meta["trend_damping_rate"] = info.get("damping_rate")
         return meta
 
     if feature_name in BREAK_FEATURES:
@@ -536,29 +731,38 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
                     "White Noise + Volatility is not allowed."
                 )
 
-        # Currently implemented and validated:
-        # Stationary + Volatility
-        # Stochastic + Volatility
-        if (
-            base_series in {"ar", "ma", "arma"}
-            or base_series in STOCHASTIC_BASE_SERIES
-        ):
+            # Currently implemented and validated:
+            # Stationary + Volatility
+            # Stochastic + Volatility
+            if (
+                base_series in {"ar", "ma", "arma"}
+                or base_series in STOCHASTIC_BASE_SERIES
+            ):
 
-            innovations, volatility_info = (
-                ts.generate_volatility(
-                    kind=volatility_feature,
-                    as_innovations=True))
+                innovations, volatility_info = (
+                    ts.generate_volatility(
+                        kind=volatility_feature,
+                        as_innovations=True
+                    )
+                )
 
-        # Volatility + Volatility is not a valid combination
-        elif base_series in VOLATILITY_BASE_SERIES:
-            raise ValueError(
-                "A volatility base series cannot be combined with another volatility feature.")
+            # Volatility + Volatility is not a valid combination
+            elif base_series in VOLATILITY_BASE_SERIES:
 
-        # Seasonal / Fractional combinations will be
-        # implemented separately later.
-        else:
-            raise NotImplementedError(
-                f"{base_series} + {volatility_feature} has not yet been implemented in the dataset generation pipeline.")
+                raise ValueError(
+                    "A volatility base series cannot be combined "
+                    "with another volatility feature."
+                )
+
+            # Seasonal / Fractional + Volatility
+            # not implemented yet.
+            else:
+
+                raise NotImplementedError(
+                    f"{base_series} + {volatility_feature} "
+                    "has not yet been implemented in the "
+                    "dataset generation pipeline."
+                )
 
         # ---------------------------------------------------------
         # Generate the base series
@@ -624,22 +828,43 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
                 feature_cfgs.get(volatility_feature, {})
             )
 
-        # ── Populate seasonality metadata when sarma/sarima/single seasonality/multiple seasonality is the base ───────
+        # ── Populate metadata when seasonality is the base ─────────────────────
         if base_series in SEASONAL_BASE_SERIES:
-            meta["seasonality_type"]    = base_series
-            meta["is_seasonal"]         = 1
-            meta["seasonality_periods"] = base_info.get("periods") if base_info.get("periods") else None
-            meta["seasonal_ar_order"]   = base_info.get("seasonal_ar_order")
-            meta["seasonal_ma_order"]   = base_info.get("seasonal_ma_order")
-            meta["seasonal_ar_coefs"]    = base_info.get("seasonal_ar_coefs")
-            meta["seasonal_ma_coefs"]    = base_info.get("seasonal_ma_coefs")
-            meta["seasonal_difference"] = base_info.get("seasonal_diff")
-            meta["seasonality_amplitudes"] = base_info.get("amplitudes")
-            meta['seasonality_period_meanings'] = base_info.get("period_meanings")
-            meta["seasonality_num_harmonics"] = base_info.get("num_harmonics")
-            meta["seasonality_fourier_coefficients"] = base_info.get("fourier_coefficients")
-            meta["seasonal_unit_root"] = base_info.get("seasonal_unit_root")
-            state["seasonal_info"] = base_info
+            meta["seasonality_type"] = base_series
+            meta["is_seasonal"] = 1
+            periods = base_info.get("periods")
+            meta["seasonality_periods"] = (periods if periods else None)
+            meta["seasonality_period_meanings"] = (base_info.get("period_meanings"))
+            meta["ar_order"] = base_info.get("ar_order")
+            meta["ma_order"] = base_info.get("ma_order")
+            meta["ar_coefs"] = base_info.get("ar_coefs")
+            meta["ma_coefs"] = base_info.get("ma_coefs")
+            meta["difference"] = base_info.get("diff")
+            meta["seasonal_difference"] = (base_info.get("seasonal_diff"))
+            meta["seasonal_unit_root"] = (base_info.get("seasonal_unit_root"))
+            meta["seasonal_initial_std"] = (base_info.get("initial_std"))
+            meta["seasonal_ar_order"] = (base_info.get("seasonal_ar_order"))
+            meta["seasonal_ma_order"] = (base_info.get("seasonal_ma_order"))
+            meta["seasonal_ar_coefs"] = (base_info.get("seasonal_ar_coefs"))
+            meta["seasonal_ma_coefs"] = (base_info.get("seasonal_ma_coefs"))
+            amplitudes = base_info.get("amplitudes")
+            if amplitudes is not None:
+                if not isinstance(amplitudes,(list, tuple, np.ndarray)):
+                    amplitudes = [amplitudes]
+                else:
+                    amplitudes = list(amplitudes)
+            meta["seasonality_amplitudes"] = (amplitudes)
+            meta["num_harmonics"] = (base_info.get("num_harmonics"))
+            fourier_coefficients = (base_info.get("fourier_coefficients"))
+            if fourier_coefficients is None:
+                fourier_coefficients = (base_info.get("coefficients"))
+            meta["fourier_coefficients"] = fourier_coefficients
+            state["seasonal_info"] = (base_info)
+            if periods:
+                if len(periods) == 1:
+                    state["seasonal_period"] = int(periods[0])
+                else:
+                    state["seasonal_period"] = [int(p) for p in periods]
 
         # ── Populate volatility metadata when arch/garch is the base ──────────
         if base_series in VOLATILITY_BASE_SERIES:
@@ -709,6 +934,7 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             trend_coef_a=meta.get("trend_coef_a"),
             trend_coef_b=meta.get("trend_coef_b"),
             trend_coef_c=meta.get("trend_coef_c"),
+            trend_damping_rate=meta.get("trend_damping_rate"),
             stochastic_type=base_series if base_series in STOCHASTIC_BASE_SERIES else None,
             difference=meta.get("difference"),
             drift_value=meta.get("drift_value"),
@@ -722,8 +948,8 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             seasonal_ma_coefs=meta.get("seasonal_ma_coefs"),
             seasonal_difference=meta.get("seasonal_difference"),
             seasonality_period_meanings=meta.get("seasonality_period_meanings"),
-            seasonality_num_harmonics=meta.get("seasonality_num_harmonics"),
-            seasonality_fourier_coefficients=meta.get("seasonality_fourier_coefficients"),
+            num_harmonics=meta.get("num_harmonics"),
+            fourier_coefficients=meta.get("fourier_coefficients"),
             seasonal_unit_root=meta.get("seasonal_unit_root"),
             volatility_type=meta.get("volatility_type"),
             volatility_alpha=meta.get("volatility_alpha"),

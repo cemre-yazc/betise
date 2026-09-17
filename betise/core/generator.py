@@ -3,7 +3,6 @@ import pandas as pd
 import random
 from numpy.polynomial import Polynomial
 from statsmodels.tsa.arima_process import ArmaProcess
-from statsmodels.tsa.statespace.sarimax import SARIMAX
 from arch import arch_model
 from statsmodels.tsa.seasonal import STL,MSTL
 from betise.utils.arfima_simulator import ARFIMA_sim
@@ -1445,21 +1444,26 @@ class TimeSeriesGenerator:
     def _get_fourier_context(
         self,
         seasonal_info,
-        n):
+        n
+    ):
         """
-        Reconstruct one existing Fourier seasonal context.
+        Reconstruct one deterministic Fourier seasonal context
+        from an existing seasonal base series.
 
-        Supports:
+        Supported:
             - single_seasonality
             - multiple_seasonality
-            - SARMA
-            - SARIMA
+            - DETERMINISTIC_SARMA
+            - DETERMINISTIC_SARIMA
+            - SEASONAL_UNIT_ROOT_FOURIER
 
-        For SARIMA, the Fourier term belongs to the
-        seasonally differenced domain, so it is
-        seasonally integrated to obtain its contribution
-        in the observed-series domain.
+        Pure SARMA / SARIMA are intentionally unsupported because
+        they do not contain a deterministic Fourier component.
         """
+
+        # =====================================================
+        # PERIOD
+        # =====================================================
 
         periods = seasonal_info.get("periods")
 
@@ -1469,19 +1473,18 @@ class TimeSeriesGenerator:
                 "one seasonal period."
             )
 
-        # --------------------------------------------------
-        # Choose one existing seasonal component
-        # --------------------------------------------------
-        period = random.choice(periods)
+        period = int(
+            random.choice(periods)
+        )
 
-        subtype = seasonal_info.get(
-            "subtype",
-            ""
+        subtype = str(
+            seasonal_info.get("subtype", "")
         ).lower()
 
-        # --------------------------------------------------
-        # Retrieve coefficients
-        # --------------------------------------------------
+        # =====================================================
+        # FOURIER COEFFICIENTS
+        # =====================================================
+
         if subtype == "multiple_seasonality":
 
             all_coefficients = seasonal_info.get(
@@ -1498,7 +1501,7 @@ class TimeSeriesGenerator:
                 (
                     item
                     for item in all_coefficients
-                    if item["period"] == period
+                    if int(item["period"]) == period
                 ),
                 None
             )
@@ -1513,22 +1516,38 @@ class TimeSeriesGenerator:
                 "coefficients"
             ]
 
-        elif subtype == "sarma":
+            # In single/multiple generation, coefficients are
+            # stored before the final scale_factor is applied.
+            coefficient_scale = seasonal_info.get(
+                "scale_factor",
+                1.0
+            )
+
+        elif subtype == "single_seasonality":
 
             coefficients = seasonal_info.get(
-                "fourier_coefficients"
+                "coefficients"
             )
 
             if coefficients is None:
                 raise ValueError(
                     "No Fourier coefficients found "
-                    "for SARMA."
+                    "for single seasonality."
                 )
 
-        else:
-            # single seasonality + SARIMA
+            coefficient_scale = seasonal_info.get(
+                "scale_factor",
+                1.0
+            )
+
+        elif subtype in {
+            "deterministic_sarma",
+            "deterministic_sarima",
+            "seasonal_unit_root_fourier",
+        }:
+
             coefficients = seasonal_info.get(
-                "coefficients"
+                "fourier_coefficients"
             )
 
             if coefficients is None:
@@ -1537,9 +1556,32 @@ class TimeSeriesGenerator:
                     f"for subtype={subtype}."
                 )
 
-        # --------------------------------------------------
-        # Reconstruct Fourier term F_t
-        # --------------------------------------------------
+            # These generators already store the FINAL scaled
+            # and strength-calibrated Fourier coefficients.
+            coefficient_scale = 1.0
+
+        elif subtype in {
+            "pure_sarma",
+            "pure_sarima",
+        }:
+
+            raise ValueError(
+                f"Contextual anomaly generation requires an "
+                f"explicit deterministic seasonal component. "
+                f"{subtype} contains stochastic seasonality only."
+            )
+
+        else:
+
+            raise ValueError(
+                f"Unsupported seasonal subtype for contextual "
+                f"anomaly generation: {subtype}"
+            )
+
+        # =====================================================
+        # RECONSTRUCT FOURIER F_t
+        # =====================================================
+
         t = np.arange(n)
 
         fourier_term = np.zeros(
@@ -1549,9 +1591,17 @@ class TimeSeriesGenerator:
 
         for coefficient in coefficients:
 
-            k = coefficient["harmonic"]
-            sin_coef = coefficient["sin_coef"]
-            cos_coef = coefficient["cos_coef"]
+            k = int(
+                coefficient["harmonic"]
+            )
+
+            sin_coef = float(
+                coefficient["sin_coef"]
+            )
+
+            cos_coef = float(
+                coefficient["cos_coef"]
+            )
 
             fourier_term += (
                 sin_coef
@@ -1565,48 +1615,50 @@ class TimeSeriesGenerator:
                 )
             )
 
-        scale_factor = seasonal_info.get(
-            "scale_factor",
-            1.0
-        )
+        fourier_term *= coefficient_scale
 
-        fourier_term *= scale_factor
+        # =====================================================
+        # OBSERVED-DOMAIN SEASONAL CONTEXT
+        # =====================================================
 
-        # --------------------------------------------------
-        # SARIMA special case
-        #
-        # (1 - B^s) Y_t = F_t + epsilon_t
-        #
-        # F_t must therefore be seasonally integrated
-        # before it represents seasonal context in
-        # the observed Y_t domain.
-        # --------------------------------------------------
-        if subtype == "sarima":
+        if subtype == "seasonal_unit_root_fourier":
+
+            # Special model:
+            #
+            #   (1-B^s)Y_t = F_t + u_t
+            #
+            # Fourier therefore lives in the seasonal-
+            # difference equation. To obtain its contribution
+            # in the observed Y_t domain, integrate it
+            # seasonally.
 
             seasonal_context = np.zeros(
                 n,
                 dtype=float
             )
 
-            for i in range(n):
-
-                if i < period:
-                    seasonal_context[i] = (
-                        fourier_term[i]
-                    )
-
-                else:
-                    seasonal_context[i] = (
-                        seasonal_context[
-                            i - period
-                        ]
-                        + fourier_term[i]
-                    )
+            for i in range(
+                period,
+                n
+            ):
+                seasonal_context[i] = (
+                    seasonal_context[i - period]
+                    + fourier_term[i]
+                )
 
         else:
-            # Single, multiple, SARMA:
-            # Fourier component is already in level domain.
-            seasonal_context = fourier_term
+
+            # single / multiple /
+            # deterministic SARMA /
+            # deterministic SARIMA
+            #
+            # Fourier already exists directly in level domain:
+            #
+            #   Y_t = F_t + background_t
+
+            seasonal_context = (
+                fourier_term
+            )
 
         return period, seasonal_context
     
@@ -2027,7 +2079,7 @@ class TimeSeriesGenerator:
         sign = sign if sign is not None else random.choice([-1, 1])
         a = a if a is not None else sign * np.random.normal(loc=1.0, scale=0.2)
         b = b if b is not None else np.random.normal(loc=0.1, scale=0.05)
-        damping_rate = damping_rate if damping_rate is not None else random.uniform(0.01, 0.005)
+        damping_rate = damping_rate if damping_rate is not None else random.uniform(0.005, 0.01)
         t = np.arange(len(series))
         noise = np.random.normal(0, noise_std, len(series))
         trend = (a * t + b) * np.exp(-damping_rate * t) * scale_factor + noise

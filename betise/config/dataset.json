@@ -25,6 +25,10 @@
       "enabled": false,
       "direction": "upward"
     },
+    "damped_trend": {
+    "enabled": false,
+    "direction": "upward"
+    },
     "arch": {
       "enabled": false
     },
