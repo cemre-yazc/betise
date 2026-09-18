@@ -8,7 +8,7 @@
   "base_series": "ar",
   "features": {
     "linear_trend": {
-      "enabled": true,
+      "enabled": false,
       "direction": "upward"
     },
     "quadratic_trend": {
