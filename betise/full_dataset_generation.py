@@ -1202,6 +1202,19 @@ def generate_full_series(
     record["composition_group"] = composition.get(
         "group"
     )
+    record["scenario_id"] = composition.get(
+        "scenario_id",
+        composition["id"],
+    )
+    record["combination_size"] = composition.get(
+        "combination_size",
+        len(composition.get("base_components", []))
+        + len(composition.get("features", [])),
+    )
+    record["categorical_variant_ids"] = composition.get(
+        "categorical_variant_ids",
+        {},
+    )
 
     df_clean = df.drop(
         columns=[
