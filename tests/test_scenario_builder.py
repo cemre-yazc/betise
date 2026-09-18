@@ -47,6 +47,22 @@ def test_type_scenarios_cover_1_to_5_way_and_are_unique():
 
     assert sizes == {1, 2, 3, 4, 5}
 
+    counts = {
+        size: sum(
+            scenario["combination_size"] == size
+            for scenario in scenarios
+        )
+        for size in sizes
+    }
+    assert counts == {
+        1: 18,
+        2: 233,
+        3: 1140,
+        4: 2652,
+        5: 2979,
+    }
+    assert len(scenarios) == 7022
+
     keys = {
         (
             tuple(scenario["base_components"]),
