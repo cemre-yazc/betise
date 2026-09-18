@@ -104,10 +104,10 @@ TEST_LAG = 10
 ALPHA = 0.05
 
 WARMUP = 50
-ROLLING_WINDOW = 25
+
 
 OUTPUT_DIR = Path(
-    "test_outputs/stochastic_volatility"
+    "betise/combination_tests/test_outputs/stochastic_volatility"
 )
 
 PLOT_DIR = OUTPUT_DIR / "plots"
@@ -778,316 +778,145 @@ def run_gaussian_validation():
 
 def save_representative_plots():
     """
-    Visual examples of recovered volatility.
+    One representative 3-panel plot for each combination.
 
-    Innovation plot:
-        Shows the recovered stochastic shocks.
+    Component 1:
+        Standalone stochastic process.
 
-    Rolling standard deviation:
-        Shows how local variance changes over time.
+    Component 2:
+        Volatility innovations.
 
-    In ARCH/GARCH-type data, periods of high variance should
-    tend to cluster together. Therefore the rolling standard
-    deviation often contains visible high- and low-volatility
-    regions.
+    Combination:
+        Stochastic process driven by those volatility innovations.
 
-    These plots are illustrative.
-    Statistical conclusions come from the repeated detection
-    tests, not from visual inspection alone.
+    NOTE:
+        This is NOT an additive combination.
+        Volatility is used as the innovation process.
     """
 
-    PLOT_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
     for stochastic_kind in STOCHASTIC_TYPES:
-
         for volatility_kind in VOLATILITY_TYPES:
 
-            ts = TimeSeriesGenerator(
-                length=LENGTH
-            )
+            # -------------------------------------------------
+            # Choose integration order
+            # -------------------------------------------------
+            if stochastic_kind in {"rw", "rwd"}:
+                d_used = 1
+            else:
+                d_used = int(np.random.choice([1, 2]))
 
-            innovations, _ = (
-                ts.generate_volatility(
-                    kind=volatility_kind,
-                    as_innovations=True
+            # -------------------------------------------------
+            # COMPONENT 1 — standalone stochastic
+            # -------------------------------------------------
+            ts_base = TimeSeriesGenerator(length=LENGTH)
+
+            if stochastic_kind == "rw":
+                stochastic_df, _ = ts_base.generate_stochastic_trend(
+                    kind="rw"
                 )
-            )
 
-            df, info, _ = (
-                generate_stochastic_from_innovations(
-                    stochastic_kind,
-                    innovations
+            elif stochastic_kind == "rwd":
+                stochastic_df, _ = ts_base.generate_stochastic_trend(
+                    kind="rwd",
+                    drift=0.05
                 )
-            )
 
-            series = df[
-                "data"
-            ].to_numpy(
-                dtype=float
-            )
-
-            stationary_process = (
-                recover_stationary_process(
-                    series,
-                    stochastic_kind,
-                    info
+            else:
+                stochastic_df, _ = ts_base.generate_stochastic_trend(
+                    kind=stochastic_kind,
+                    d=d_used,
+                    const=False
                 )
+
+            stochastic_component = stochastic_df["data"].to_numpy(dtype=float)
+
+            # -------------------------------------------------
+            # COMPONENT 2 — volatility innovations
+            # -------------------------------------------------
+            ts_combined = TimeSeriesGenerator(length=LENGTH)
+
+            innovations, _ = ts_combined.generate_volatility(
+                kind=volatility_kind,
+                as_innovations=True
             )
 
-            recovered = recover_innovations(
-                stationary_process,
-                stochastic_kind,
-                info
-            )
+            innovations = np.asarray(innovations, dtype=float)
 
-            recovered = recovered[
-                WARMUP:
-            ]
-
-            rolling_std = (
-                pd.Series(recovered)
-                .rolling(
-                    ROLLING_WINDOW
+            # -------------------------------------------------
+            # COMBINATION
+            # -------------------------------------------------
+            if stochastic_kind == "rw":
+                combined_df, _ = ts_combined.generate_stochastic_trend(
+                    kind="rw",
+                    innovations=innovations
                 )
-                .std()
-            )
 
-            # Recovered innovation plot
-            plt.figure(
-                figsize=(10, 4)
-            )
+            elif stochastic_kind == "rwd":
+                combined_df, _ = ts_combined.generate_stochastic_trend(
+                    kind="rwd",
+                    drift=0.05,
+                    innovations=innovations
+                )
 
-            plt.plot(
-                recovered
-            )
+            else:
+                combined_df, _ = ts_combined.generate_stochastic_trend(
+                    kind=stochastic_kind,
+                    d=d_used,
+                    const=False,
+                    innovations=innovations
+                )
 
-            plt.xlabel(
-                "Time"
-            )
+            combined = combined_df["data"].to_numpy(dtype=float)
+            time = np.arange(LENGTH)
 
-            plt.ylabel(
-                "Recovered innovation"
-            )
+            # -------------------------------------------------
+            # PLOT
+            # -------------------------------------------------
+            fig, axes = plt.subplots(3, 1, figsize=(12, 9), sharex=True)
 
-            plt.title(
-                f"{stochastic_kind.upper()} + "
-                f"{volatility_kind.upper()} "
-                "— Recovered Innovations"
+            axes[0].plot(time, stochastic_component, linewidth=1.1)
+            axes[0].set_title(
+                f"{stochastic_kind.upper()} + {volatility_kind.upper()} "
+                "— Component 1: Stochastic"
             )
+            axes[0].set_ylabel("Value")
+            axes[0].grid(alpha=0.3)
+
+            axes[1].plot(time, innovations, linewidth=1.1)
+            axes[1].set_title(
+                f"{stochastic_kind.upper()} + {volatility_kind.upper()} "
+                "— Component 2: Volatility Innovations"
+            )
+            axes[1].set_ylabel("Innovation")
+            axes[1].grid(alpha=0.3)
+
+            axes[2].plot(time, combined, linewidth=1.1)
+            axes[2].set_title(
+                f"{stochastic_kind.upper()} + {volatility_kind.upper()} "
+                f"— Combination (d={d_used})"
+            )
+            axes[2].set_xlabel("Time")
+            axes[2].set_ylabel("Value")
+            axes[2].grid(alpha=0.3)
 
             plt.tight_layout()
 
+            filename = (
+                f"{stochastic_kind}_{volatility_kind}_components.png"
+            )
+
             plt.savefig(
-                PLOT_DIR
-                / (
-                    f"{stochastic_kind}_"
-                    f"{volatility_kind}_innovations.png"
-                ),
-                dpi=300
+                PLOT_DIR / filename,
+                dpi=300,
+                bbox_inches="tight"
             )
 
             plt.close()
 
-            # Rolling volatility plot
-            plt.figure(
-                figsize=(10, 4)
-            )
+            print(f"Saved plot: {filename}")
 
-            plt.plot(
-                rolling_std
-            )
-
-            plt.xlabel(
-                "Time"
-            )
-
-            plt.ylabel(
-                "Rolling standard deviation"
-            )
-
-            plt.title(
-                f"{stochastic_kind.upper()} + "
-                f"{volatility_kind.upper()} "
-                "— Rolling Volatility"
-            )
-
-            plt.tight_layout()
-
-            plt.savefig(
-                PLOT_DIR
-                / (
-                    f"{stochastic_kind}_"
-                    f"{volatility_kind}_rolling_std.png"
-                ),
-                dpi=300
-            )
-
-            plt.close()
-
-
-# =========================================================
-# SUMMARY PLOTS
-# =========================================================
-
-def save_summary_plots(
-    detection_results,
-    gaussian_results,
-):
-    """
-    Source vs Recovered bars
-    ------------------------
-    Source bars:
-        Volatility detectability before entering the
-        stochastic model.
-
-    Recovered bars:
-        Volatility detectability after integration,
-        differencing and inverse filtering.
-
-    Nearly overlapping bars are the desired result:
-    the stochastic process preserved volatility.
-
-    Gaussian control
-    ----------------
-    This plot provides a baseline for false positives.
-    It should be much lower than the volatility-model
-    detection rates.
-    """
-
-    PLOT_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    for stochastic_kind in STOCHASTIC_TYPES:
-
-        subset = detection_results[
-            detection_results[
-                "stochastic"
-            ] == stochastic_kind
-        ].copy()
-
-        x = np.arange(
-            len(subset)
-        )
-
-        width = 0.35
-
-        plt.figure(
-            figsize=(8, 5)
-        )
-
-        plt.bar(
-            x - width / 2,
-            subset[
-                "source_any"
-            ],
-            width,
-            label="Source"
-        )
-
-        plt.bar(
-            x + width / 2,
-            subset[
-                "recovered_any"
-            ],
-            width,
-            label="Recovered"
-        )
-
-        plt.xticks(
-            x,
-            subset[
-                "volatility"
-            ].str.upper()
-        )
-
-        plt.ylim(
-            0,
-            1.05
-        )
-
-        plt.xlabel(
-            "Volatility model"
-        )
-
-        plt.ylabel(
-            "Detection rate"
-        )
-
-        plt.title(
-            f"{stochastic_kind.upper()} "
-            "— Source vs Recovered Volatility"
-        )
-
-        plt.legend()
-
-        plt.tight_layout()
-
-        plt.savefig(
-            PLOT_DIR
-            / (
-                f"{stochastic_kind}"
-                "_source_vs_recovered.png"
-            ),
-            dpi=300
-        )
-
-        plt.close()
-
-    # Gaussian false-positive plot
-    x = np.arange(
-        len(gaussian_results)
-    )
-
-    plt.figure(
-        figsize=(8, 5)
-    )
-
-    plt.bar(
-        x,
-        gaussian_results[
-            "ANY_false_positive"
-        ]
-    )
-
-    plt.xticks(
-        x,
-        gaussian_results[
-            "stochastic"
-        ].str.upper()
-    )
-
-    plt.ylim(
-        0,
-        1.0
-    )
-
-    plt.xlabel(
-        "Stochastic model"
-    )
-
-    plt.ylabel(
-        "False-positive rate"
-    )
-
-    plt.title(
-        "Gaussian Control — "
-        "False-Positive Volatility Detection"
-    )
-
-    plt.tight_layout()
-
-    plt.savefig(
-        PLOT_DIR
-        / "gaussian_false_positive.png",
-        dpi=300
-    )
-
-    plt.close()
 
 
 # =========================================================
@@ -1155,11 +984,6 @@ if __name__ == "__main__":
             float_format=lambda x:
                 f"{x:.2f}"
         )
-    )
-
-    save_summary_plots(
-        detection_results,
-        gaussian_results
     )
 
     save_representative_plots()

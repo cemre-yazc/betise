@@ -27,6 +27,15 @@ def create_metadata_record(
     base_series=None,
     base_process_type=None,
 
+    # Multiple base-family composition
+    base_components=None,
+    base_families=None,
+    composition_steps=None,
+
+    feature_components=None,
+    feature_families=None,
+    feature_infos=None,
+
     # === AR / MA STRUCTURE ===
     ar_order=None,
     ma_order=None,
@@ -67,6 +76,11 @@ def create_metadata_record(
     seasonal_ma_coefs=None,
 
     seasonal_initial_std=None,
+
+    seasonality_scale_factor=None,
+    seasonality_strength=None,
+    seasonality_period_balance_factors=None,
+    seasonality_calibration_difference_order=None,
 
     # === VOLATILITY ===
     volatility_type=None,
@@ -136,6 +150,14 @@ def create_metadata_record(
         "base_series": base_series,
         "base_process_type": base_process_type,
 
+        "base_components": base_components,
+        "base_families": base_families,
+        "composition_steps": composition_steps,
+
+        "feature_components": feature_components,
+        "feature_families": feature_families,
+        "feature_infos": feature_infos,
+
         # === AR / MA Structure ===
         "ar_order": ar_order,
         "ma_order": ma_order,
@@ -176,6 +198,11 @@ def create_metadata_record(
         "seasonal_ma_coefs": seasonal_ma_coefs,
 
         "seasonal_initial_std": seasonal_initial_std,
+
+        "seasonality_scale_factor": seasonality_scale_factor,
+        "seasonality_strength": seasonality_strength,
+        "seasonality_period_balance_factors": seasonality_period_balance_factors,
+        "seasonality_calibration_difference_order": seasonality_calibration_difference_order,
 
         # === Volatility ===
         "volatility_type": volatility_type,

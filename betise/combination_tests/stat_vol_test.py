@@ -84,10 +84,9 @@ ALPHA = 0.05
 # initialization effects. We remove this short region.
 WARMUP = 50
 
-ROLLING_WINDOW = 25
 
 OUTPUT_DIR = Path(
-    "test_outputs/stationary_volatility"
+    "betise/combination_tests/test_outputs/stationary_volatility"
 )
 
 PLOT_DIR = OUTPUT_DIR / "plots"
@@ -653,304 +652,107 @@ def run_gaussian_validation():
 
 def save_representative_plots():
     """
-    These plots are qualitative examples.
+    One representative 3-panel plot for each combination.
 
-    Each plot shows recovered innovations together with a
-    rolling standard deviation.
+    Component 1:
+        Standalone stationary process.
 
-    Interpretation:
-    ----------------
-    If volatility clustering exists, the rolling standard
-    deviation should show regions of relatively high and
-    relatively low variance instead of remaining constant.
+    Component 2:
+        Volatility innovations.
 
-    These plots are NOT the statistical test themselves.
-    They are visual examples supporting the numerical tests.
+    Combination:
+        Stationary process driven by those volatility innovations.
+
+    NOTE:
+        This is NOT an additive combination.
+        Volatility acts as the innovation process of AR/MA/ARMA.
     """
 
-    PLOT_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
+    PLOT_DIR.mkdir(parents=True, exist_ok=True)
 
     for stationary_kind in STATIONARY_TYPES:
-
         for volatility_kind in VOLATILITY_TYPES:
 
-            ts = TimeSeriesGenerator(
-                length=LENGTH
+            # -------------------------------------------------
+            # COMPONENT 1 — standalone stationary
+            # -------------------------------------------------
+            ts_base = TimeSeriesGenerator(length=LENGTH)
+
+            stationary_df, _ = ts_base.generate_stationary_base_series(
+                distribution=stationary_kind
             )
 
-            innovations, _ = (
-                ts.generate_volatility(
-                    kind=volatility_kind,
-                    as_innovations=True
-                )
+            stationary_component = stationary_df["data"].to_numpy(dtype=float)
+
+            # -------------------------------------------------
+            # COMPONENT 2 — volatility innovations
+            # -------------------------------------------------
+            ts_combined = TimeSeriesGenerator(length=LENGTH)
+
+            innovations, _ = ts_combined.generate_volatility(
+                kind=volatility_kind,
+                as_innovations=True
             )
 
-            df, info = (
-                ts.generate_stationary_base_series(
-                    distribution=stationary_kind,
-                    innovations=innovations
-                )
+            innovations = np.asarray(innovations, dtype=float)
+
+            # -------------------------------------------------
+            # COMBINATION
+            # -------------------------------------------------
+            combined_df, _ = ts_combined.generate_stationary_base_series(
+                distribution=stationary_kind,
+                innovations=innovations
             )
 
-            recovered = recover_innovations(
-                df["data"].to_numpy(
-                    dtype=float
-                ),
-                stationary_kind,
-                info
+            combined = combined_df["data"].to_numpy(dtype=float)
+            time = np.arange(LENGTH)
+
+            # -------------------------------------------------
+            # PLOT
+            # -------------------------------------------------
+            fig, axes = plt.subplots(3, 1, figsize=(12, 9), sharex=True)
+
+            axes[0].plot(time, stationary_component, linewidth=1.1)
+            axes[0].set_title(
+                f"{stationary_kind.upper()} + {volatility_kind.upper()} "
+                "— Component 1: Stationary"
             )
+            axes[0].set_ylabel("Value")
+            axes[0].grid(alpha=0.3)
 
-            recovered = recovered[
-                WARMUP:
-            ]
-
-            rolling_std = (
-                pd.Series(recovered)
-                .rolling(
-                    ROLLING_WINDOW
-                )
-                .std()
+            axes[1].plot(time, innovations, linewidth=1.1)
+            axes[1].set_title(
+                f"{stationary_kind.upper()} + {volatility_kind.upper()} "
+                "— Component 2: Volatility Innovations"
             )
+            axes[1].set_ylabel("Innovation")
+            axes[1].grid(alpha=0.3)
 
-            # ---------------------------------------------
-            # Recovered innovations
-            # ---------------------------------------------
-
-            plt.figure(
-                figsize=(10, 4)
+            axes[2].plot(time, combined, linewidth=1.1)
+            axes[2].set_title(
+                f"{stationary_kind.upper()} + {volatility_kind.upper()} "
+                "— Combination"
             )
-
-            plt.plot(
-                recovered
-            )
-
-            plt.xlabel(
-                "Time"
-            )
-
-            plt.ylabel(
-                "Recovered innovation"
-            )
-
-            plt.title(
-                f"{stationary_kind.upper()} + "
-                f"{volatility_kind.upper()} "
-                "— Recovered Innovations"
-            )
+            axes[2].set_xlabel("Time")
+            axes[2].set_ylabel("Value")
+            axes[2].grid(alpha=0.3)
 
             plt.tight_layout()
 
+            filename = (
+                f"{stationary_kind}_{volatility_kind}_components.png"
+            )
+
             plt.savefig(
-                PLOT_DIR
-                / (
-                    f"{stationary_kind}_"
-                    f"{volatility_kind}_innovations.png"
-                ),
-                dpi=300
+                PLOT_DIR / filename,
+                dpi=300,
+                bbox_inches="tight"
             )
 
             plt.close()
 
-            # ---------------------------------------------
-            # Rolling standard deviation
-            # ---------------------------------------------
+            print(f"Saved plot: {filename}")
 
-            plt.figure(
-                figsize=(10, 4)
-            )
-
-            plt.plot(
-                rolling_std
-            )
-
-            plt.xlabel(
-                "Time"
-            )
-
-            plt.ylabel(
-                "Rolling standard deviation"
-            )
-
-            plt.title(
-                f"{stationary_kind.upper()} + "
-                f"{volatility_kind.upper()} "
-                "— Rolling Volatility"
-            )
-
-            plt.tight_layout()
-
-            plt.savefig(
-                PLOT_DIR
-                / (
-                    f"{stationary_kind}_"
-                    f"{volatility_kind}_rolling_std.png"
-                ),
-                dpi=300
-            )
-
-            plt.close()
-
-
-# =========================================================
-# SAVE SUMMARY PLOTS
-# =========================================================
-
-def save_summary_plots(
-    detection_results,
-    gaussian_results,
-):
-    """
-    SOURCE vs RECOVERED plot
-    ------------------------
-    Source:
-        Detectability of volatility BEFORE AR/MA/ARMA.
-
-    Recovered:
-        Detectability AFTER passing through the stationary
-        process and inverse-filtering it again.
-
-    Bars close to each other indicate that the stationary
-    model preserved the volatility structure.
-
-    Gaussian control plot
-    ---------------------
-    Shows how often ordinary Gaussian innovations are
-    incorrectly identified as volatile.
-
-    This value should remain much lower than the volatility
-    detection rates.
-    """
-
-    PLOT_DIR.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    for stationary_kind in STATIONARY_TYPES:
-
-        subset = detection_results[
-            detection_results[
-                "stationary"
-            ] == stationary_kind
-        ].copy()
-
-        x = np.arange(
-            len(subset)
-        )
-
-        width = 0.35
-
-        plt.figure(
-            figsize=(8, 5)
-        )
-
-        plt.bar(
-            x - width / 2,
-            subset["source_any"],
-            width,
-            label="Source"
-        )
-
-        plt.bar(
-            x + width / 2,
-            subset["recovered_any"],
-            width,
-            label="Recovered"
-        )
-
-        plt.xticks(
-            x,
-            subset[
-                "volatility"
-            ].str.upper()
-        )
-
-        plt.ylim(
-            0,
-            1.05
-        )
-
-        plt.ylabel(
-            "Detection rate"
-        )
-
-        plt.xlabel(
-            "Volatility model"
-        )
-
-        plt.title(
-            f"{stationary_kind.upper()} "
-            "— Source vs Recovered Volatility"
-        )
-
-        plt.legend()
-
-        plt.tight_layout()
-
-        plt.savefig(
-            PLOT_DIR
-            / (
-                f"{stationary_kind}"
-                "_source_vs_recovered.png"
-            ),
-            dpi=300
-        )
-
-        plt.close()
-
-    # Gaussian false-positive plot
-    x = np.arange(
-        len(gaussian_results)
-    )
-
-    plt.figure(
-        figsize=(8, 5)
-    )
-
-    plt.bar(
-        x,
-        gaussian_results[
-            "ANY_false_positive"
-        ]
-    )
-
-    plt.xticks(
-        x,
-        gaussian_results[
-            "stationary"
-        ].str.upper()
-    )
-
-    plt.ylim(
-        0,
-        1.0
-    )
-
-    plt.xlabel(
-        "Stationary model"
-    )
-
-    plt.ylabel(
-        "False-positive rate"
-    )
-
-    plt.title(
-        "Gaussian Control — "
-        "False-Positive Volatility Detection"
-    )
-
-    plt.tight_layout()
-
-    plt.savefig(
-        PLOT_DIR
-        / "gaussian_false_positive.png",
-        dpi=300
-    )
-
-    plt.close()
 
 
 # =========================================================
@@ -1019,11 +821,6 @@ if __name__ == "__main__":
             float_format=lambda x:
                 f"{x:.2f}"
         )
-    )
-
-    save_summary_plots(
-        detection_results,
-        gaussian_results
     )
 
     save_representative_plots()
