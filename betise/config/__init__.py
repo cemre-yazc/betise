@@ -86,6 +86,50 @@ def load_config(
     }
 
 
+def load_generation_config(
+    config_dir: Optional[str] = None,
+    *,
+    params: Optional[Dict[str, Any]] = None,
+    categorical_params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Load the canonical rule-driven generation configuration.
+
+    Only the compact parameter-space files are read here:
+    params.json for numerical/range parameters and
+    categorical_params.json for discrete feature variants.
+    """
+
+    base_dir = (
+        Path(config_dir)
+        if config_dir
+        else Path(__file__).resolve().parent
+    )
+
+    cfg_params = _load_json_config(
+        base_dir / "params.json"
+    )
+    cfg_categorical = _load_json_config(
+        base_dir / "categorical_params.json"
+    )
+
+    if params is not None:
+        cfg_params = _deep_merge(
+            cfg_params,
+            params,
+        )
+
+    if categorical_params is not None:
+        cfg_categorical = _deep_merge(
+            cfg_categorical,
+            categorical_params,
+        )
+
+    return {
+        "params": cfg_params,
+        "categorical_params": cfg_categorical,
+    }
+
+
 def load_full_dataset_config(
     config_dir: Optional[str] = None,
     *,
