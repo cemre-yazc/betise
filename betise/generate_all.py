@@ -26,6 +26,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 
+from betise.config import load_generation_config
 from betise.dataset_generation import (
     _patch_pyarrow_unregister_extension_type,
 )
@@ -36,17 +37,8 @@ from betise.full_dataset_generation import (
 from betise.scenario_builder import (
     enumerate_type_scenarios,
     iter_materialized_scenarios,
-    load_categorical_params,
 )
 from betise.utils.helpers import add_indices_column
-
-
-def _load_params(
-    config_dir: Path,
-) -> Dict[str, Any]:
-    path = config_dir / "params.json"
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
 
 
 def _write_type_catalog(
@@ -155,12 +147,13 @@ def generate_all(
         exist_ok=True,
     )
 
-    params_cfg = _load_params(
-        config_path
+    generation_cfg_files = load_generation_config(
+        str(config_path)
     )
-    categorical_cfg = load_categorical_params(
-        config_path
-    )
+    params_cfg = generation_cfg_files["params"]
+    categorical_cfg = generation_cfg_files[
+        "categorical_params"
+    ]
 
     type_scenarios = enumerate_type_scenarios(
         min_size=min_size,
