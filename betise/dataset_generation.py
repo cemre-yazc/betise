@@ -582,7 +582,12 @@ def apply_feature(
         if mode == "multiple":
             return ts.generate_point_anomalies(df, scale_factor=scale_factor)
         location = feature_cfg.get("location", "middle")
-        return ts.generate_point_anomaly(df, location=location, scale_factor=scale_factor)
+        return ts.generate_point_anomaly(
+            df,
+            location=location,
+            scale_factor=scale_factor,
+            is_spike=is_spike,
+        )
 
     if feature_name == "collective_anomaly":
         p            = params_cfg.get("anomalies", {}).get("collective_anomaly", {})

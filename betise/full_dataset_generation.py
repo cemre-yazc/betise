@@ -39,6 +39,7 @@ from betise.core.generator import TimeSeriesGenerator
 from betise.core.metadata import (
     attach_metadata_columns_to_df,
     create_metadata_record,
+    metadata_value_to_cell,
 )
 from betise.core.rules import (
     FRACTIONAL_BASE_SERIES,
@@ -1202,6 +1203,19 @@ def generate_full_series(
     record["composition_group"] = composition.get(
         "group"
     )
+    record["scenario_id"] = composition.get(
+        "scenario_id",
+        composition["id"],
+    )
+    record["combination_size"] = composition.get(
+        "combination_size",
+        len(composition.get("base_components", []))
+        + len(composition.get("features", [])),
+    )
+    record["categorical_variant_ids"] = composition.get(
+        "categorical_variant_ids",
+        {},
+    )
 
     df_clean = df.drop(
         columns=[
@@ -1211,10 +1225,24 @@ def generate_full_series(
         errors="ignore",
     )
 
-    return attach_metadata_columns_to_df(
+    output_df = attach_metadata_columns_to_df(
         df_clean,
         record,
     )
+
+    for key in (
+        "composition_id",
+        "composition_name",
+        "composition_group",
+        "scenario_id",
+        "combination_size",
+        "categorical_variant_ids",
+    ):
+        output_df[key] = metadata_value_to_cell(
+            record.get(key)
+        )
+
+    return output_df
 
 
 # ============================================================================
