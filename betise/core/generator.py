@@ -4,6 +4,7 @@ import random
 from numpy.polynomial import Polynomial
 from statsmodels.tsa.arima_process import ArmaProcess
 from arch import arch_model
+from arch.univariate import Normal
 from statsmodels.tsa.seasonal import STL,MSTL
 from betise.utils.arfima_simulator import ARFIMA_sim
 from scipy.signal import fftconvolve, lfilter
@@ -886,8 +887,28 @@ class TimeSeriesGenerator:
         alpha = np.random.uniform(*alpha_range)
         omega = np.random.uniform(*omega_range)
         
-        am = arch_model(None, vol='ARCH', p=1, mean='Zero')
-        sim = am.simulate([omega, alpha], nobs=length)
+        am = arch_model(
+            None,
+            vol="ARCH",
+            p=1,
+            mean="Zero",
+        )
+
+        arch_seed = int(
+            np.random.randint(
+                0,
+                2**31 - 1,
+            )
+        )
+
+        am.distribution = Normal(
+            seed=arch_seed
+        )
+
+        sim = am.simulate(
+            [omega, alpha],
+            nobs=length,
+        )
         
         series = sim['data'].values * scale_factor
         info = {'type': 'volatility', 'subtype': 'ARCH', 'alpha': alpha, 'omega': omega}
@@ -904,8 +925,29 @@ class TimeSeriesGenerator:
             if alpha + beta < 1:
                 break  # Ensure weak stationarity of the variance
     
-        am = arch_model(None, vol='GARCH', p=1, q=1, mean='Zero')
-        sim = am.simulate([omega, alpha, beta], nobs=length)
+            am = arch_model(
+                None,
+                vol="GARCH",
+                p=1,
+                q=1,
+                mean="Zero",
+            )
+
+            arch_seed = int(
+                np.random.randint(
+                    0,
+                    2**31 - 1,
+                )
+            )
+
+            am.distribution = Normal(
+                seed=arch_seed
+            )
+
+            sim = am.simulate(
+                [omega, alpha, beta],
+                nobs=length,
+            )
         
         series = sim['data'].values * scale_factor
         info = {'type': 'volatility', 'subtype': 'GARCH', 'alpha': alpha, 'beta': beta, 'omega': omega}
@@ -939,6 +981,16 @@ class TimeSeriesGenerator:
             dist='normal'
         )
 
+        arch_seed = int(
+            np.random.randint(
+                0,
+                2**31 - 1,
+            )
+        )
+
+        am.distribution = Normal(
+            seed=arch_seed
+        )
         sim = am.simulate(
             [omega, alpha, gamma, beta],
             nobs=length
@@ -994,6 +1046,16 @@ class TimeSeriesGenerator:
             dist='normal'
         )
 
+        arch_seed = int(
+            np.random.randint(
+                0,
+                2**31 - 1,
+            )
+        )
+
+        am.distribution = Normal(
+            seed=arch_seed
+        )
         sim = am.simulate(
             [omega, alpha, gamma, beta, delta],
             nobs=length
