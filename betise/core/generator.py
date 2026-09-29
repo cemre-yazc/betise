@@ -3185,7 +3185,8 @@ class TimeSeriesGenerator:
         min_cancellation_gap=0.10,
         allowed_periods=None,
         min_cycles=6,
-        max_attempts=1000
+        max_attempts=1000,
+        innovations=None
     ):
         """
         Pure multiplicative stochastic SARMA process.
@@ -3405,16 +3406,31 @@ class TimeSeriesGenerator:
         # GENERATE
         # =====================================================
 
-        burnin = max(
-            200,
-            8 * s
-        )
+        burnin = max(200, 8 * s)
+        external_innovations_used = innovations is not None
 
-        series = arma_process.generate_sample(
-            nsample=n,
-            burnin=burnin,
-            scale=noise_std
-        )
+        if innovations is None:
+            series = arma_process.generate_sample(
+                nsample=n,
+                burnin=burnin,
+                scale=noise_std
+            )
+        else:
+            innovations = np.asarray(innovations, dtype=float)
+
+            if len(innovations) != n:
+                raise ValueError(
+                    f"innovations length must match series length. "
+                    f"Expected {n}, got {len(innovations)}."
+                )
+
+            series = arma_process.generate_sample(
+                nsample=n,
+                scale=1.0,
+                distrvs=lambda size: innovations
+            )
+
+            noise_std = None
 
         # =====================================================
         # DATAFRAME
@@ -3471,7 +3487,9 @@ class TimeSeriesGenerator:
             "seasonal_cancellation_gap":
                 seasonal_cancellation_gap,
 
-            "fourier_used": False
+            "fourier_used": False,
+
+            "external_innovations_used": external_innovations_used,
         }
 
         return df, info
@@ -3489,7 +3507,9 @@ class TimeSeriesGenerator:
         seasonal_coef_range=(-0.4, 0.4),
         allowed_periods=None,
         min_cycles=6,
-        max_attempts=1000):
+        max_attempts=1000,
+        innovations=None,
+    ):
         """
         Pure multiplicative stochastic SARIMA process.
 
@@ -3606,12 +3626,31 @@ class TimeSeriesGenerator:
 
         # STATIONARY SARMA CORE
 
-        burnin = max(200,8 * s)
+        burnin = max(200, 8 * s)
+        external_innovations_used = innovations is not None
 
-        sarma_core = arma_process.generate_sample(
-            nsample=n,
-            burnin=burnin,
-            scale=noise_std)
+        if innovations is None:
+            sarma_core = arma_process.generate_sample(
+                nsample=n,
+                burnin=burnin,
+                scale=noise_std
+            )
+        else:
+            innovations = np.asarray(innovations, dtype=float)
+
+            if len(innovations) != n:
+                raise ValueError(
+                    f"innovations length must match series length. "
+                    f"Expected {n}, got {len(innovations)}."
+                )
+
+            sarma_core = arma_process.generate_sample(
+                nsample=n,
+                scale=1.0,
+                distrvs=lambda size: innovations
+            )
+
+            noise_std = None
 
         stochastic_component = sarma_core.copy()
 
@@ -3676,7 +3715,8 @@ class TimeSeriesGenerator:
             "seasonal_ma_order":seasonal_ma_order,
             "seasonal_ar_coefs":seasonal_ar_coefs,
             "seasonal_ma_coefs":seasonal_ma_coefs,
-            "fourier_used": False}
+            "fourier_used": False,
+            "external_innovations_used": external_innovations_used}
 
         return df, info
 

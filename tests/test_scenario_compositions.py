@@ -79,11 +79,20 @@ def _find_scenario(
         ),
         (
             [
-                "sarma",
+                "pure_sarma",
                 "garch",
             ],
             [],
         ),
+
+        (
+            [
+                "pure_sarima",
+                "garch",
+            ],
+            [],
+        ),
+
         (
             [
                 "arfima",

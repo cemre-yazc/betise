@@ -22,16 +22,16 @@ from betise.scenario_builder import (
 
 EXPECTED_BASE_COUNTS = {
     1: 18,
-    2: 71,
-    3: 68,
+    2: 72,
+    3: 72,
 }
 
 EXPECTED_TYPE_COUNTS = {
     1: 18,
-    2: 233,
-    3: 1140,
-    4: 2652,
-    5: 2979,
+    2: 232,
+    3: 1132,
+    4: 2650,
+    5: 3060,
 }
 
 EXPECTED_FEATURE_VARIANT_COUNTS = {
@@ -50,18 +50,18 @@ EXPECTED_FEATURE_VARIANT_COUNTS = {
 
 EXPECTED_ALL_COUNTS = {
     1: 18,
-    2: 1427,
-    3: 36490,
-    4: 359126,
-    5: 862116,
+    2: 1416,
+    3: 36096,
+    4: 355752,
+    5: 874944,
 }
 
 EXPECTED_SAMPLED_3_COUNTS = {
     1: 18,
-    2: 503,
-    3: 3071,
-    4: 7752,
-    5: 8937,
+    2: 498,
+    3: 3036,
+    4: 7734,
+    5: 9180,
 }
 
 
@@ -79,7 +79,7 @@ def test_valid_base_composition_counts():
         EXPECTED_BASE_COUNTS
     )
 
-    assert len(compositions) == 157
+    assert len(compositions) == 162
 
 
 def test_every_base_composition_passes_rules():
@@ -115,7 +115,7 @@ def test_type_scenario_counts():
 
     assert sum(
         counts.values()
-    ) == 7022
+    ) == 7092
 
 
 def test_all_combination_sizes_exist():
@@ -339,7 +339,7 @@ def test_all_mode_counts():
 
     assert sum(
         counts.values()
-    ) == 1259177
+    ) == 1268226
 
 
 def test_sampled_mode_counts():
@@ -356,7 +356,7 @@ def test_sampled_mode_counts():
 
     assert sum(
         counts.values()
-    ) == 20281
+    ) == 20466
 
 
 def test_sampled_does_not_duplicate_when_space_is_small():
