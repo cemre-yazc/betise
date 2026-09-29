@@ -925,29 +925,18 @@ class TimeSeriesGenerator:
             if alpha + beta < 1:
                 break  # Ensure weak stationarity of the variance
     
-            am = arch_model(
-                None,
-                vol="GARCH",
-                p=1,
-                q=1,
-                mean="Zero",
-            )
+        am = arch_model(
+            None,
+            vol="GARCH",
+            p=1,
+            q=1,
+            mean="Zero",)
 
-            arch_seed = int(
-                np.random.randint(
-                    0,
-                    2**31 - 1,
-                )
-            )
+        arch_seed = int(np.random.randint(0,2**31 - 1,))
 
-            am.distribution = Normal(
-                seed=arch_seed
-            )
+        am.distribution = Normal(seed=arch_seed)
 
-            sim = am.simulate(
-                [omega, alpha, beta],
-                nobs=length,
-            )
+        sim = am.simulate([omega, alpha, beta],nobs=length,)
         
         series = sim['data'].values * scale_factor
         info = {'type': 'volatility', 'subtype': 'GARCH', 'alpha': alpha, 'beta': beta, 'omega': omega}

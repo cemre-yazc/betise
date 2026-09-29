@@ -298,6 +298,95 @@ def enumerate_type_scenarios(
 
     return scenarios
 
+def build_type_scenario(
+    base_components,
+    feature_components=(),
+) -> Dict[str, Any]:
+    """
+    Build one exact canonical type-level scenario.
+
+    Unlike enumerate_type_scenarios(), this function does not
+    enumerate the complete scenario space.
+
+    It validates only the combination explicitly requested
+    by the user.
+
+    Parameters
+    ----------
+    base_components:
+        Requested mathematical base components.
+
+        Example:
+            ["arch"]
+
+    feature_components:
+        Requested overlay features.
+
+        Example:
+            ["point_anomaly", "mean_shift"]
+
+    Returns
+    -------
+    dict
+        Canonical type-level scenario.
+
+    Raises
+    ------
+    ValueError
+        If the requested combination is invalid according
+        to the canonical rule system.
+    """
+
+    report = validate_requested_combination(
+        base_components=base_components,
+        feature_components=feature_components,
+    )
+
+    report.raise_for_errors()
+
+    combination_size = (
+        len(report.base_components)
+        +
+        len(report.feature_components)
+    )
+
+    scenario_name = "__".join(
+        report.base_components
+        +
+        report.feature_components
+    )
+
+    scenario_id = (
+        f"{combination_size}way__"
+        f"{scenario_name}"
+    )
+
+    return {
+        "scenario_id": scenario_id,
+        "name": scenario_name,
+        "combination_size": combination_size,
+
+        "base_components": list(
+            report.base_components
+        ),
+
+        "base_families": list(
+            report.base_families
+        ),
+
+        "feature_components": list(
+            report.feature_components
+        ),
+
+        "feature_families": list(
+            report.feature_families
+        ),
+
+        "composition_steps": list(
+            report.composition_steps
+        ),
+    }
+
 
 # ============================================================================
 # SUMMARY

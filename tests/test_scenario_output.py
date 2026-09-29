@@ -6,7 +6,10 @@ import pytest
 
 from betise.scenario_output import (
     generate_dataset_to_parquet,
+    generate_requested_dataset_to_parquet,
 )
+
+import betise.scenario_generation as scenario_generation
 
 
 # ============================================================================
@@ -443,3 +446,179 @@ def test_json_context_columns_are_valid_json(
                 parsed,
                 dict,
             )
+
+def test_requested_output_generates_exact_series_count(
+    tmp_path,
+):
+    output_dir = (
+        tmp_path
+        / "requested_dataset"
+    )
+
+    summary = (
+        generate_requested_dataset_to_parquet(
+            output_dir=output_dir,
+            base_components=[
+                "arch",
+            ],
+            feature_components=[
+                "mean_shift",
+                "point_anomaly",
+            ],
+            num_series=7,
+            categorical_mode="sampled",
+            variants_per_type=3,
+            length_range=(300, 300),
+            seed=42,
+            shard_size=3,
+        )
+    )
+
+    assert summary[
+        "total_series"
+    ] == 7
+
+    assert summary[
+        "requested_num_series"
+    ] == 7
+
+    assert summary[
+        "total_recipes"
+    ] == 3
+
+    assert summary[
+        "shard_count"
+    ] == 3
+
+
+def test_requested_output_contains_only_requested_combination(
+    tmp_path,
+):
+    output_dir = (
+        tmp_path
+        / "requested_dataset"
+    )
+
+    summary = (
+        generate_requested_dataset_to_parquet(
+            output_dir=output_dir,
+            base_components=[
+                "arch",
+            ],
+            feature_components=[
+                "point_anomaly",
+                "mean_shift",
+            ],
+            num_series=5,
+            categorical_mode="sampled",
+            variants_per_type=2,
+            length_range=(300, 300),
+            seed=42,
+            shard_size=10,
+        )
+    )
+
+    assert summary[
+        "base_components"
+    ] == [
+        "arch"
+    ]
+
+    assert summary[
+        "feature_components"
+    ] == [
+        "mean_shift",
+        "point_anomaly",
+    ]
+
+    assert summary[
+        "combination_size"
+    ] == 3
+
+    shard_files = list(
+        (
+            output_dir
+            / "3-way"
+        ).glob(
+            "*.parquet"
+        )
+    )
+
+    assert len(
+        shard_files
+    ) == 1
+
+    dataframe = pd.read_parquet(
+        shard_files[0]
+    )
+
+    assert dataframe[
+        "series_id"
+    ].nunique() == 5
+
+    assert len(
+        dataframe
+    ) == (
+        5 * 300
+    )
+
+
+def test_requested_output_writes_summary_file(
+    tmp_path,
+):
+    output_dir = (
+        tmp_path
+        / "requested_dataset"
+    )
+
+    generate_requested_dataset_to_parquet(
+        output_dir=output_dir,
+        base_components=[
+            "ar",
+        ],
+        feature_components=[
+            "linear_trend",
+        ],
+        num_series=4,
+        categorical_mode="sampled",
+        variants_per_type=2,
+        length_range=(300, 300),
+        seed=42,
+        shard_size=10,
+    )
+
+    summary_path = (
+        output_dir
+        / "request_summary.json"
+    )
+
+    assert summary_path.exists()
+
+    with summary_path.open(
+        "r",
+        encoding="utf-8",
+    ) as file:
+
+        summary = json.load(
+            file
+        )
+
+    assert summary[
+        "mode"
+    ] == "requested"
+
+    assert summary[
+        "total_series"
+    ] == 4
+
+    assert summary[
+        "base_components"
+    ] == [
+        "ar"
+    ]
+
+    assert summary[
+        "feature_components"
+    ] == [
+        "linear_trend"
+    ]

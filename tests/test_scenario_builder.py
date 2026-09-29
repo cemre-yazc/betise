@@ -15,7 +15,9 @@ from betise.scenario_builder import (
     enumerate_valid_base_compositions,
     iter_materialized_scenarios,
     to_generation_composition,
+    build_type_scenario,
 )
+
 
 
 EXPECTED_BASE_COUNTS = {
@@ -493,3 +495,47 @@ def test_generation_adapter_schema():
     assert composition[
         "combination_size"
     ] == 2
+
+def test_build_exact_type_scenario():
+    scenario = build_type_scenario(
+        base_components=[
+            "arch",
+        ],
+        feature_components=[
+            "point_anomaly",
+            "mean_shift",
+        ],
+    )
+
+    assert scenario[
+        "combination_size"
+    ] == 3
+
+    assert scenario[
+        "base_components"
+    ] == [
+        "arch"
+    ]
+
+    assert scenario[
+        "feature_components"
+    ] == [
+        "mean_shift",
+        "point_anomaly",
+    ]
+
+
+def test_build_exact_type_scenario_rejects_invalid_combination():
+    import pytest
+
+    with pytest.raises(
+        ValueError
+    ):
+        build_type_scenario(
+            base_components=[
+                "garch",
+            ],
+            feature_components=[
+                "variance_shift",
+            ],
+        )

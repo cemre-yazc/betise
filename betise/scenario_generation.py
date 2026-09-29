@@ -34,6 +34,7 @@ from betise.scenario_builder import (
     enumerate_type_scenarios,
     iter_materialized_scenarios,
     to_generation_composition,
+    build_type_scenario,
 )
 
 
@@ -204,6 +205,7 @@ def iter_generated_series(
         iter_materialized_scenarios(
         type_scenarios=type_scenarios,
         categorical_mode=categorical_mode,
+        variants_per_type=variants_per_type,
         seed=seed,
         )
     )
@@ -315,6 +317,311 @@ def iter_generated_series(
 
                 "seed": (
                     seed
+                ),
+            }
+
+            yield (
+                dataframe,
+                context,
+            )
+
+            series_id += 1
+
+def iter_requested_series(
+    *,
+    base_components,
+    feature_components=(),
+    num_series: int,
+    categorical_mode: str = "sampled",
+    variants_per_type: int = 1,
+    length_range=(300, 500),
+    seed: int = 42,
+) -> Iterator[
+    tuple[
+        pd.DataFrame,
+        Dict[str, Any],
+    ]
+]:
+    """
+    Generate an exact number of time series from one explicitly
+    requested canonical BeTiSe combination.
+
+    Example
+    -------
+    arch
+        + mean_shift
+        + point_anomaly
+
+    num_series=100
+
+    produces exactly 100 actual time series.
+
+    categorical_mode controls how categorical recipes are selected,
+    while num_series controls the final number of numerical
+    realizations.
+    """
+
+    if num_series <= 0:
+        raise ValueError(
+            "num_series must be positive."
+        )
+
+    if variants_per_type <= 0:
+        raise ValueError(
+            "variants_per_type must be positive."
+        )
+
+    categorical_mode = (
+        categorical_mode.lower()
+    )
+
+    if categorical_mode not in {
+        "all",
+        "sampled",
+    }:
+        raise ValueError(
+            "categorical_mode must be "
+            "'all' or 'sampled'."
+        )
+
+    # ------------------------------------------------------------
+    # Reproducibility
+    # ------------------------------------------------------------
+
+    random.seed(
+        seed
+    )
+
+    np.random.seed(
+        seed
+    )
+
+    # ------------------------------------------------------------
+    # Numerical parameters
+    # ------------------------------------------------------------
+
+    cfg = load_config()
+
+    params_cfg = cfg[
+        "params"
+    ]
+
+    full_cfg = {
+        "feature_defaults": {}
+    }
+
+    # ------------------------------------------------------------
+    # Build and validate exactly ONE requested type scenario.
+    # ------------------------------------------------------------
+
+    scenario = (
+        build_type_scenario(
+            base_components=base_components,
+            feature_components=feature_components,
+        )
+    )
+
+    # ------------------------------------------------------------
+    # Categorical recipe selection
+    # ------------------------------------------------------------
+
+    if categorical_mode == "sampled":
+
+        # Never select more recipes than actual series,
+        # because every selected recipe should produce at
+        # least one realization.
+        effective_variants = min(
+            variants_per_type,
+            num_series,
+        )
+
+    else:
+
+        effective_variants = (
+            variants_per_type
+        )
+
+    materialized_recipes = list(
+        iter_materialized_scenarios(
+            type_scenarios=[
+                scenario
+            ],
+            categorical_mode=categorical_mode,
+            seed=seed,
+            variants_per_type=effective_variants,
+        )
+    )
+
+    if not materialized_recipes:
+        raise RuntimeError(
+            "Requested scenario produced zero "
+            "categorical recipes."
+        )
+
+    # Keep recipe ordering deterministic.
+    materialized_recipes.sort(
+        key=lambda recipe: (
+            recipe[
+                "materialized_scenario_id"
+            ]
+        )
+    )
+
+    recipe_count = len(
+        materialized_recipes
+    )
+
+    # In "all" mode, every categorical recipe must appear
+    # at least once. Therefore num_series cannot be smaller
+    # than the number of recipes.
+    if (
+        categorical_mode == "all"
+        and recipe_count > num_series
+    ):
+        raise ValueError(
+            "categorical_mode='all' requires "
+            "num_series to be at least the number "
+            "of categorical recipes. "
+            f"Requested num_series={num_series}, "
+            f"but this combination has "
+            f"{recipe_count} recipes."
+        )
+
+    # ------------------------------------------------------------
+    # Exact allocation
+    #
+    # Example:
+    #   100 series / 6 recipes
+    #
+    #   17, 17, 17, 17, 16, 16
+    #
+    # Total is always exactly 100.
+    # ------------------------------------------------------------
+
+    base_count = (
+        num_series
+        //
+        recipe_count
+    )
+
+    remainder = (
+        num_series
+        %
+        recipe_count
+    )
+
+    series_id = 1
+
+    # ------------------------------------------------------------
+    # Generation
+    # ------------------------------------------------------------
+
+    for recipe_position, materialized in enumerate(
+        materialized_recipes
+    ):
+
+        realization_count = (
+            base_count
+            +
+            (
+                1
+                if recipe_position
+                < remainder
+                else 0
+            )
+        )
+
+        composition = (
+            to_generation_composition(
+                materialized
+            )
+        )
+
+        for realization_index in range(
+            realization_count
+        ):
+
+            length = _sample_length(
+                length_range
+            )
+
+            dataframe = (
+                generate_full_series(
+                    composition=composition,
+                    full_cfg=full_cfg,
+                    params_cfg=params_cfg,
+                    series_id=series_id,
+                    length=length,
+                )
+            )
+
+            context = {
+                "series_id": (
+                    series_id
+                ),
+
+                "recipe_index": (
+                    recipe_position + 1
+                ),
+
+                "realization_index": (
+                    realization_index
+                ),
+
+                "type_scenario_id": (
+                    materialized[
+                        "scenario_id"
+                    ]
+                ),
+
+                "materialized_scenario_id": (
+                    materialized[
+                        "materialized_scenario_id"
+                    ]
+                ),
+
+                "combination_size": (
+                    materialized[
+                        "combination_size"
+                    ]
+                ),
+
+                "base_components": list(
+                    materialized[
+                        "base_components"
+                    ]
+                ),
+
+                "feature_components": list(
+                    materialized[
+                        "feature_components"
+                    ]
+                ),
+
+                "categorical_variant_ids": dict(
+                    materialized.get(
+                        "categorical_variant_ids",
+                        {},
+                    )
+                ),
+
+                "feature_overrides": dict(
+                    materialized.get(
+                        "feature_overrides",
+                        {},
+                    )
+                ),
+
+                "length": (
+                    length
+                ),
+
+                "seed": (
+                    seed
+                ),
+
+                "requested_num_series": (
+                    num_series
                 ),
             }
 

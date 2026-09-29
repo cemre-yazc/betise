@@ -2,8 +2,10 @@ import numpy as np
 
 from betise.scenario_generation import (
     iter_generated_series,
+    iter_requested_series,
 )
 
+import betise.scenario_generation as scenario_generation
 
 # ============================================================================
 # BASIC GENERATION
@@ -350,4 +352,231 @@ def test_same_seed_is_reproducible():
             df_b[
                 "data"
             ].to_numpy(),
+        )
+
+def test_variants_per_type_is_forwarded_to_materializer(
+    monkeypatch,
+):
+    """
+    iter_generated_series() must forward variants_per_type
+    to iter_materialized_scenarios().
+    """
+
+    captured = {}
+
+    def fake_enumerate_type_scenarios(
+        *,
+        min_size,
+        max_size,
+    ):
+        return []
+
+    def fake_iter_materialized_scenarios(
+        *,
+        type_scenarios,
+        categorical_mode,
+        seed,
+        variants_per_type,
+    ):
+        captured[
+            "variants_per_type"
+        ] = variants_per_type
+
+        return iter(())
+
+    monkeypatch.setattr(
+        scenario_generation,
+        "enumerate_type_scenarios",
+        fake_enumerate_type_scenarios,
+    )
+
+    monkeypatch.setattr(
+        scenario_generation,
+        "iter_materialized_scenarios",
+        fake_iter_materialized_scenarios,
+    )
+
+    generated = list(
+        scenario_generation.iter_generated_series(
+            min_size=3,
+            max_size=3,
+            categorical_mode="sampled",
+            variants_per_type=7,
+            series_per_recipe=1,
+            length_range=(300, 300),
+            seed=42,
+        )
+    )
+
+    assert generated == []
+
+    assert (
+        captured[
+            "variants_per_type"
+        ]
+        == 7
+    )
+
+def test_requested_generation_produces_exact_series_count():
+    generated = list(
+        iter_requested_series(
+            base_components=[
+                "arch",
+            ],
+            feature_components=[
+                "mean_shift",
+                "point_anomaly",
+            ],
+            num_series=7,
+            categorical_mode="sampled",
+            variants_per_type=3,
+            length_range=(300, 300),
+            seed=42,
+        )
+    )
+
+    assert len(
+        generated
+    ) == 7
+
+    series_ids = [
+        context[
+            "series_id"
+        ]
+        for _, context
+        in generated
+    ]
+
+    assert series_ids == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+    ]
+
+
+def test_requested_generation_uses_only_requested_combination():
+    generated = list(
+        iter_requested_series(
+            base_components=[
+                "arch",
+            ],
+            feature_components=[
+                "mean_shift",
+                "point_anomaly",
+            ],
+            num_series=5,
+            categorical_mode="sampled",
+            variants_per_type=2,
+            length_range=(300, 300),
+            seed=42,
+        )
+    )
+
+    for dataframe, context in generated:
+
+        assert context[
+            "base_components"
+        ] == [
+            "arch"
+        ]
+
+        assert set(
+            context[
+                "feature_components"
+            ]
+        ) == {
+            "mean_shift",
+            "point_anomaly",
+        }
+
+        assert context[
+            "combination_size"
+        ] == 3
+
+        assert len(
+            dataframe
+        ) == 300
+
+        assert np.all(
+            np.isfinite(
+                dataframe[
+                    "data"
+                ].to_numpy()
+            )
+        )
+
+
+def test_requested_generation_distributes_series_across_recipes():
+    generated = list(
+        iter_requested_series(
+            base_components=[
+                "ar",
+            ],
+            feature_components=[
+                "quadratic_trend",
+            ],
+            num_series=7,
+            categorical_mode="sampled",
+            variants_per_type=3,
+            length_range=(300, 300),
+            seed=42,
+        )
+    )
+
+    recipe_counts = {}
+
+    for _, context in generated:
+
+        recipe_id = context[
+            "materialized_scenario_id"
+        ]
+
+        recipe_counts[
+            recipe_id
+        ] = (
+            recipe_counts.get(
+                recipe_id,
+                0,
+            )
+            + 1
+        )
+
+    assert len(
+        recipe_counts
+    ) == 3
+
+    assert sorted(
+        recipe_counts.values(),
+        reverse=True,
+    ) == [
+        3,
+        2,
+        2,
+    ]
+
+
+def test_requested_generation_rejects_invalid_combination():
+    import pytest
+
+    with pytest.raises(
+        ValueError
+    ):
+        list(
+            iter_requested_series(
+                base_components=[
+                    "garch",
+                ],
+                feature_components=[
+                    "variance_shift",
+                ],
+                num_series=5,
+                categorical_mode="sampled",
+                variants_per_type=1,
+                length_range=(300, 300),
+                seed=42,
+            )
         )

@@ -20,7 +20,10 @@ import pandas as pd
 
 from betise.scenario_generation import (
     iter_generated_series,
+    iter_requested_series,
 )
+
+
 
 
 # ============================================================================
@@ -482,6 +485,221 @@ def generate_dataset_to_parquet(
     summary_path = (
         output_dir
         / "generation_summary.json"
+    )
+
+    with summary_path.open(
+        "w",
+        encoding="utf-8",
+    ) as file:
+
+        json.dump(
+            summary,
+            file,
+            indent=2,
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+    return summary
+
+def generate_requested_dataset_to_parquet(
+    *,
+    output_dir,
+    base_components,
+    feature_components=(),
+    num_series: int,
+    categorical_mode: str = "sampled",
+    variants_per_type: int = 1,
+    length_range=(300, 500),
+    seed: int = 42,
+    shard_size: int = 100,
+) -> Dict[str, Any]:
+    """
+    Generate exactly num_series time series from one explicitly
+    requested canonical combination and save them as parquet shards.
+
+    This is the user-facing exact-combination output path.
+
+    It is independent from the full scenario-space generation path.
+    """
+
+    if num_series <= 0:
+        raise ValueError(
+            "num_series must be positive."
+        )
+
+    if shard_size <= 0:
+        raise ValueError(
+            "shard_size must be positive."
+        )
+
+    output_dir = Path(
+        output_dir
+    )
+
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    stream = iter_requested_series(
+        base_components=base_components,
+        feature_components=feature_components,
+        num_series=num_series,
+        categorical_mode=categorical_mode,
+        variants_per_type=variants_per_type,
+        length_range=length_range,
+        seed=seed,
+    )
+
+    buffer = []
+
+    buffered_series = 0
+    shard_index = 0
+    generated_series = 0
+
+    generated_recipes = set()
+
+    canonical_bases = None
+    canonical_features = None
+    combination_size = None
+
+    for dataframe, context in stream:
+
+        if canonical_bases is None:
+            canonical_bases = list(
+                context[
+                    "base_components"
+                ]
+            )
+
+            canonical_features = list(
+                context[
+                    "feature_components"
+                ]
+            )
+
+            combination_size = int(
+                context[
+                    "combination_size"
+                ]
+            )
+
+        dataframe = (
+            _attach_scenario_context(
+                dataframe,
+                context,
+            )
+        )
+
+        buffer.append(
+            dataframe
+        )
+
+        buffered_series += 1
+        generated_series += 1
+
+        generated_recipes.add(
+            context[
+                "materialized_scenario_id"
+            ]
+        )
+
+        if (
+            buffered_series
+            >= shard_size
+        ):
+
+            _write_shard(
+                frames=buffer,
+                output_dir=output_dir,
+                combination_size=combination_size,
+                shard_index=shard_index,
+            )
+
+            buffer = []
+            buffered_series = 0
+            shard_index += 1
+
+    # ------------------------------------------------------------
+    # Remaining partial shard
+    # ------------------------------------------------------------
+
+    if buffer:
+
+        _write_shard(
+            frames=buffer,
+            output_dir=output_dir,
+            combination_size=combination_size,
+            shard_index=shard_index,
+        )
+
+        shard_index += 1
+
+    if generated_series != num_series:
+        raise RuntimeError(
+            "Requested generation count mismatch: "
+            f"requested={num_series}, "
+            f"generated={generated_series}"
+        )
+
+    # ------------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------------
+
+    summary = {
+        "mode": "requested",
+
+        "base_components": (
+            canonical_bases
+        ),
+
+        "feature_components": (
+            canonical_features
+        ),
+
+        "combination_size": (
+            combination_size
+        ),
+
+        "requested_num_series": (
+            num_series
+        ),
+
+        "categorical_mode": (
+            categorical_mode
+        ),
+
+        "variants_per_type": (
+            variants_per_type
+        ),
+
+        "length_range": list(
+            length_range
+        ),
+
+        "seed": seed,
+
+        "shard_size": (
+            shard_size
+        ),
+
+        "total_recipes": len(
+            generated_recipes
+        ),
+
+        "total_series": (
+            generated_series
+        ),
+
+        "shard_count": (
+            shard_index
+        ),
+    }
+
+    summary_path = (
+        output_dir
+        / "request_summary.json"
     )
 
     with summary_path.open(
