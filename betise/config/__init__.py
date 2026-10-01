@@ -159,7 +159,7 @@ def _validate_full_dataset_schema(
         "random_seed",
         "output",
         "defaults",
-        "feature_defaults",
+        "feature_variants",
         "compositions",
     }
 

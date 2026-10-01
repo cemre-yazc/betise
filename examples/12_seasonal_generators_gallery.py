@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt
 from scipy.signal import periodogram, find_peaks
 from statsmodels.tsa.stattools import acf
 
-from .generator import TimeSeriesGenerator
+from betise.core.generator import TimeSeriesGenerator
 
 
 SEED = 42

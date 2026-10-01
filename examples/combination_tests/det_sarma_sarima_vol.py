@@ -68,7 +68,7 @@ WARMUP = 50
 NUM_HARMONICS = 1
 SEED = 42
 
-OUTPUT_DIR = Path("betise/combination_tests/test_outputs/deterministic_sarma_sarima_volatility")
+OUTPUT_DIR = Path("examples/combination_tests/test_outputs/deterministic_sarma_sarima_volatility")
 PLOT_DIR = OUTPUT_DIR / "plots"
 
 np.random.seed(SEED)

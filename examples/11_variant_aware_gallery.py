@@ -5,7 +5,7 @@ BeTiSe — Full Variant-Aware Combination Gallery Test
 Goal
 ----
 Generate EXACTLY ONE series for every canonical composition template currently
-listed in ``full_dataset_variant_aware.json`` (standalone + pair + triple),
+listed in ``full_dataset.json`` (standalone + pair + triple),
 while exercising the categorical feature variants in a deterministic round-robin
 fashion.
 
@@ -31,16 +31,16 @@ Recommended location
 --------------------
 Save this file as:
 
-    betise/core/test_full_variant_aware_gallery.py
+    examples/11_variant_aware_gallery.py
 
 Run from repository root:
 
-    python -m betise.core.test_full_variant_aware_gallery
+    python examples/11_variant_aware_gallery.py
 
 Optional:
-    python -m betise.core.test_full_variant_aware_gallery --length 400
-    python -m betise.core.test_full_variant_aware_gallery --max-compositions 100
-    python -m betise.core.test_full_variant_aware_gallery --plots-per-page 12
+    python examples/11_variant_aware_gallery.py --length 400
+    python examples/11_variant_aware_gallery.py --max-compositions 100
+    python examples/11_variant_aware_gallery.py --plots-per-page 12
 """
 
 from __future__ import annotations
@@ -534,7 +534,7 @@ def main():
 
     parser.add_argument(
         "--variant-config",
-        default="full_dataset_variant_aware.json",
+        default="full_dataset.json",
     )
 
     parser.add_argument(
