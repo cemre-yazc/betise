@@ -16,8 +16,6 @@ Important project conventions
   it is treated as a mathematical BASE component.
 - ``pure_sarma`` and ``pure_sarima`` are canonical stochastic seasonal
   base generators.
-- ``seasonal_unit_root_fourier`` remains an experimental/reference generator
-  outside the canonical combination table.
 - Component-preservation statistics are validated by dedicated combination
   tests. They are not re-run inside the dataset-generation loop.
 """
@@ -119,9 +117,6 @@ CANONICAL_BASE_SERIES = (
     | FRACTIONAL_BASE_SERIES
 )
 
-EXPERIMENTAL_BASE_SERIES = {
-    "seasonal_unit_root_fourier",
-}
 
 
 # ============================================================================
@@ -242,8 +237,6 @@ def base_family(base_series: str) -> str:
     if base_series in FRACTIONAL_BASE_SERIES:
         return "fractional"
 
-    if base_series in EXPERIMENTAL_BASE_SERIES:
-        return "experimental"
 
     raise ValueError(
         f"Unknown base series '{base_series}'. "
@@ -293,21 +286,9 @@ def resolve_base_pair_rule(component_a: str, component_b: str) -> Rule:
         )
 
     if component_a not in CANONICAL_BASE_SERIES:
-        if component_a in EXPERIMENTAL_BASE_SERIES:
-            return Rule(
-                EXCLUDE_CONFLICT,
-                f"'{component_a}' is experimental/reference-only and is "
-                "outside the canonical combination table.",
-            )
         raise ValueError(f"Unknown base component: {component_a}")
 
     if component_b not in CANONICAL_BASE_SERIES:
-        if component_b in EXPERIMENTAL_BASE_SERIES:
-            return Rule(
-                EXCLUDE_CONFLICT,
-                f"'{component_b}' is experimental/reference-only and is "
-                "outside the canonical combination table.",
-            )
         raise ValueError(f"Unknown base component: {component_b}")
 
     family_a = base_family(component_a)
@@ -464,7 +445,7 @@ def resolve_base_pair_rule(component_a: str, component_b: str) -> Rule:
 
         if seasonal in {"pure_sarma", "pure_sarima"}:
             return Rule(
-                ALLOW_REQUIRES_VALIDATION,
+                ALLOW_VALIDATED,
                 "Volatility innovations can drive the stochastic seasonal "
                 "SARMA/SARIMA process. Joint component preservation must be "
                 "validated statistically.",
