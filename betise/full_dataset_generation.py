@@ -28,8 +28,19 @@ from __future__ import annotations
 from copy import deepcopy
 from pathlib import Path
 import inspect
+import itertools
 import random
-from typing import Any, Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 import numpy as np
 import pandas as pd
@@ -801,6 +812,237 @@ def _resolve_feature_configs(
         )
 
     return resolved
+
+
+# ============================================================================
+# VARIANT EXPANSION
+# ============================================================================
+#
+# ``full_dataset.json`` stores compositions as *templates*: a composition names
+# its features but not the concrete parameters to use. The concrete values live
+# in ``feature_variants``, keyed by feature name:
+#
+#     "linear_trend": [
+#         {"variant_id": "linear__direction-up",   "params": {"direction": "up"}},
+#         {"variant_id": "linear__direction-down", "params": {"direction": "down"}},
+#     ]
+#
+# Expanding every composition over the cartesian product of its features'
+# variants is what ``_meta.variant_expansion = "runtime_cartesian_product"``
+# refers to (8_246 templates -> 1_897_289 concrete cases).
+#
+# Variants are entirely optional: ``generate_full_series()`` reads concrete
+# parameters from ``composition["feature_overrides"]``, so a template passed
+# straight through simply uses the generator's own defaults.
+
+VALID_COLLECTIVE_SHAPES = [
+    "rectangular",
+    "gaussian",
+    "triangular",
+    "ramp",
+    "decay",
+]
+
+
+def normalize_variant_params(
+    feature_name: str,
+    raw_params: Mapping[str, Any],
+    rng: random.Random,
+) -> Dict[str, Any]:
+    """Translate variant-schema fields into ``apply_feature()`` config fields.
+
+    The variant schema in ``full_dataset.json`` is written for humans reading a
+    catalogue; a few of its fields are named differently from the keyword
+    arguments ``apply_feature()`` accepts, and some are meaningless in
+    ``mode="multiple"`` cases where the generator randomises per event. This
+    function performs that translation.
+    """
+
+    params = deepcopy(dict(raw_params))
+
+    # Multiple mean / variance shift: directions are intentionally random per
+    # break — apply_feature() already does that whenever mode == "multiple".
+    if (
+        feature_name in {"mean_shift", "variance_shift"}
+        and params.get("mode") == "multiple"
+    ):
+        params.pop("direction", None)
+        params.pop("direction_strategy", None)
+        params.pop("location", None)
+
+    # Point anomaly: the count is computed by generator.py.
+    if feature_name == "point_anomaly":
+        params.pop("count_strategy", None)
+
+        if params.get("mode") == "multiple":
+            params.pop("location", None)
+            params.pop("num_anomalies", None)
+            params.pop("is_spike", None)
+
+    # Collective anomaly: JSON says shape_strategy, apply_feature() wants
+    # anomaly_shapes.
+    if feature_name == "collective_anomaly":
+        strategy = params.pop("shape_strategy", None)
+        count = int(params.get("num_anomalies", 1))
+
+        if strategy == "mixed":
+            params["anomaly_shapes"] = [
+                rng.choice(VALID_COLLECTIVE_SHAPES) for _ in range(count)
+            ]
+        elif strategy is not None:
+            # A one-item list is intentionally accepted by generator.py; it
+            # repeats the same shape for all anomalies.
+            params["anomaly_shapes"] = [strategy]
+
+        if params.get("mode") == "multiple":
+            params.pop("location", None)
+
+    # Contextual anomaly / trend shift: multiple events have no single location.
+    if (
+        feature_name in {"contextual_anomaly", "trend_shift"}
+        and params.get("mode") == "multiple"
+    ):
+        params.pop("location", None)
+
+    return params
+
+
+def expand_composition_variants(
+    composition: Mapping[str, Any],
+    feature_variants: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    mode: str = "product",
+    rng: Optional[random.Random] = None,
+    cursors: Optional[Dict[str, int]] = None,
+    max_cases: Optional[int] = None,
+) -> Iterator[Tuple[Dict[str, Any], Dict[str, str]]]:
+    """Expand one template composition into concrete, ready-to-generate ones.
+
+    Yields ``(composition, selected_variant_ids)`` pairs where the composition
+    carries a fully populated ``feature_overrides`` mapping, exactly what
+    :func:`generate_full_series` consumes.
+
+    Parameters
+    ----------
+    composition
+        A template composition from ``full_dataset.json["compositions"]``.
+    feature_variants
+        ``full_dataset.json["feature_variants"]``. Features missing from this
+        mapping are skipped, so a partially populated catalogue is fine.
+    mode
+        ``"product"`` walks the cartesian product of every active feature's
+        variants — the semantics declared by ``_meta.variant_expansion``.
+        ``"cycle"`` yields a single composition, taking one variant per feature
+        round-robin via ``cursors``; successive calls advance through the
+        variant lists, which keeps a long run evenly spread without expanding
+        combinatorially.
+    rng
+        Used only where a variant delegates a choice to chance (for example
+        ``shape_strategy="mixed"``). Defaults to a fresh ``random.Random()``.
+    cursors
+        Per-feature round-robin state for ``mode="cycle"``; pass the same dict
+        across calls. Ignored by ``mode="product"``.
+    max_cases
+        Stop after this many yielded cases. ``None`` means no limit.
+
+    Notes
+    -----
+    This is a lazy generator on purpose: expanding the whole catalogue in
+    ``"product"`` mode produces ~1.9M cases, far too many to materialise.
+    """
+
+    if mode not in {"product", "cycle"}:
+        raise ValueError(
+            f"Unknown mode: {mode!r}. Valid modes are 'product' and 'cycle'."
+        )
+
+    rng = rng if rng is not None else random.Random()
+
+    features = [
+        feature
+        for feature in composition.get("features", [])
+        if feature_variants.get(feature)
+    ]
+
+    # No feature carries variants -> the template is already concrete.
+    if not features:
+        yield deepcopy(dict(composition)), {}
+        return
+
+    if mode == "cycle":
+        cursors = cursors if cursors is not None else {}
+        chosen = []
+
+        for feature in features:
+            variants = feature_variants[feature]
+            cursor = cursors.get(feature, 0)
+            cursors[feature] = cursor + 1
+            chosen.append(variants[cursor % len(variants)])
+
+        yield _materialize(composition, features, chosen, rng)
+        return
+
+    emitted = 0
+
+    for chosen in itertools.product(*(feature_variants[f] for f in features)):
+        if max_cases is not None and emitted >= max_cases:
+            return
+
+        yield _materialize(composition, features, chosen, rng)
+        emitted += 1
+
+
+def _materialize(
+    composition: Mapping[str, Any],
+    features: Sequence[str],
+    chosen_variants: Sequence[Mapping[str, Any]],
+    rng: random.Random,
+) -> Tuple[Dict[str, Any], Dict[str, str]]:
+    """Attach one concrete variant per active feature to a copy of a template."""
+
+    concrete = deepcopy(dict(composition))
+
+    feature_overrides = dict(concrete.get("feature_overrides", {}))
+    selected_variant_ids: Dict[str, str] = {}
+
+    for index, (feature, variant) in enumerate(zip(features, chosen_variants)):
+        params = normalize_variant_params(
+            feature_name=feature,
+            raw_params=variant.get("params", {}),
+            rng=rng,
+        )
+
+        # A caller-supplied override wins over the catalogue variant.
+        feature_overrides[feature] = _deep_merge(
+            params,
+            dict(concrete.get("feature_overrides", {}).get(feature, {})),
+        )
+
+        selected_variant_ids[feature] = variant.get(
+            "variant_id",
+            f"{feature}__variant-{index}",
+        )
+
+    concrete["feature_overrides"] = feature_overrides
+
+    return concrete, selected_variant_ids
+
+
+def count_composition_variants(
+    composition: Mapping[str, Any],
+    feature_variants: Mapping[str, Sequence[Mapping[str, Any]]],
+) -> int:
+    """Number of cases ``expand_composition_variants(..., mode="product")`` yields."""
+
+    total = 1
+
+    for feature in composition.get("features", []):
+        variants = feature_variants.get(feature)
+
+        if variants:
+            total *= len(variants)
+
+    return total
 
 
 # ============================================================================

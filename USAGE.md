@@ -10,6 +10,7 @@
 6. [Mixed Batch Generation](#6-mixed-batch-generation)
 7. [Classification Dataset](#7-classification-dataset)
 8. [Output Format](#8-output-format)
+9. [Canonical Catalog (Full Dataset)](#9-canonical-catalog-full-dataset)
 
 ---
 
@@ -527,3 +528,95 @@ nonstationary = df[df["is_stationary"] == 0]
 # Extract a single series
 series_1 = df[df["series_id"] == 1]["data"].values
 ```
+
+---
+
+## 9. Canonical Catalog (Full Dataset)
+
+Beyond the per-call configuration shown above, BeTiSe ships a **canonical catalog** of
+every valid base/feature combination: `betise/config/full_dataset.json`.
+
+```python
+from betise.config import load_full_dataset_config
+
+cfg = load_full_dataset_config()
+full_cfg, params_cfg = cfg["full_dataset"], cfg["params"]
+
+len(full_cfg["compositions"])        # 8246 templates
+full_cfg["compositions"][1]
+# {'id': 'C00002', 'name': 'ar__point_anomaly', 'group': 'standalone',
+#  'base_components': ['ar'], 'features': ['point_anomaly']}
+```
+
+Compositions come in three groups: `standalone` (one base), `pair` and `triple`.
+Generate one series from a composition with `generate_full_series`:
+
+```python
+from betise.full_dataset_generation import generate_full_series
+
+df = generate_full_series(
+    composition=full_cfg["compositions"][1],
+    full_cfg=full_cfg,
+    params_cfg=params_cfg,
+    series_id=1,
+    length=400,
+)
+```
+
+### Feature variants
+
+A composition is a *template*: it names its features but not their parameters. The
+concrete parameter sets live in `full_cfg["feature_variants"]`:
+
+```python
+full_cfg["feature_variants"]["linear_trend"]
+# [{'variant_id': 'linear__direction-up',   'params': {'direction': 'up'}},
+#  {'variant_id': 'linear__direction-down', 'params': {'direction': 'down'}}]
+```
+
+**Variants are optional.** Passing a template straight to `generate_full_series` uses
+the generator's own defaults. To use them, expand the template first:
+
+```python
+from betise.full_dataset_generation import expand_composition_variants
+
+composition = next(c for c in full_cfg["compositions"] if c["features"] == ["mean_shift"])
+
+for concrete, variant_ids in expand_composition_variants(
+    composition,
+    full_cfg["feature_variants"],
+    mode="product",          # cartesian product over every active feature
+    max_cases=3,
+):
+    print(variant_ids["mean_shift"])
+    df = generate_full_series(
+        composition=concrete, full_cfg=full_cfg,
+        params_cfg=params_cfg, series_id=1, length=400,
+    )
+# mean_shift__mode-single__location-beginning__direction-up__num_breaks-1
+# mean_shift__mode-single__location-beginning__direction-down__num_breaks-1
+# mean_shift__mode-single__location-middle__direction-up__num_breaks-1
+```
+
+The expansion is a lazy generator — running `mode="product"` over the whole catalog
+yields ~1.9M cases, so use `max_cases` or iterate selectively.
+
+| Mode | Behaviour |
+|------|-----------|
+| `"product"` | Cartesian product of every active feature's variants |
+| `"cycle"` | One composition per call, cycling through variants via `cursors` |
+
+```python
+cursors = {}   # share this dict across calls to keep the rotation going
+for composition in full_cfg["compositions"]:
+    concrete, variant_ids = next(expand_composition_variants(
+        composition, full_cfg["feature_variants"], mode="cycle", cursors=cursors,
+    ))
+```
+
+Count the cases a template expands to with `count_composition_variants(composition,
+feature_variants)`. Features absent from `feature_variants` are skipped, so a partially
+populated catalog works fine.
+
+See `examples/11_variant_aware_gallery.py` for a complete walkthrough that renders every
+composition to a PDF gallery.
