@@ -5,7 +5,7 @@ BeTiSe — Full Variant-Aware Combination Gallery Test
 Goal
 ----
 Generate EXACTLY ONE series for every canonical composition template currently
-listed in ``full_dataset_variant_aware.json`` (standalone + pair + triple),
+listed in ``full_dataset.json`` (standalone + pair + triple),
 while exercising the categorical feature variants in a deterministic round-robin
 fashion.
 
@@ -31,16 +31,16 @@ Recommended location
 --------------------
 Save this file as:
 
-    betise/core/test_full_variant_aware_gallery.py
+    examples/11_variant_aware_gallery.py
 
 Run from repository root:
 
-    python -m betise.core.test_full_variant_aware_gallery
+    python examples/11_variant_aware_gallery.py
 
 Optional:
-    python -m betise.core.test_full_variant_aware_gallery --length 400
-    python -m betise.core.test_full_variant_aware_gallery --max-compositions 100
-    python -m betise.core.test_full_variant_aware_gallery --plots-per-page 12
+    python examples/11_variant_aware_gallery.py --length 400
+    python examples/11_variant_aware_gallery.py --max-compositions 100
+    python examples/11_variant_aware_gallery.py --plots-per-page 12
 """
 
 from __future__ import annotations
@@ -63,16 +63,11 @@ from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import pandas as pd
 
-from betise.full_dataset_generation import generate_full_series
+from betise.full_dataset_generation import (
+    expand_composition_variants,
+    generate_full_series,
+)
 
-
-VALID_COLLECTIVE_SHAPES = [
-    "rectangular",
-    "gaussian",
-    "triangular",
-    "ramp",
-    "decay",
-]
 
 
 # ============================================================================
@@ -116,179 +111,6 @@ def load_variant_aware_config(
 # ============================================================================
 # VARIANT MATERIALIZATION
 # ============================================================================
-
-def _normalize_variant_params(
-    feature_name: str,
-    raw_params: Dict[str, Any],
-    rng: random.Random,
-) -> Dict[str, Any]:
-    """Translate variant-schema fields into apply_feature() config fields."""
-
-    params = deepcopy(raw_params)
-
-    # ------------------------------------------------------------
-    # Multiple mean / variance shift:
-    # directions are intentionally random per break.
-    # apply_feature() already does that whenever mode == "multiple".
-    # ------------------------------------------------------------
-
-    if (
-        feature_name in {"mean_shift", "variance_shift"}
-        and params.get("mode") == "multiple"
-    ):
-        params.pop("direction", None)
-        params.pop("direction_strategy", None)
-        params.pop("location", None)
-
-    # ------------------------------------------------------------
-    # Multiple point anomaly:
-    # count is currently computed automatically by generator.py.
-    # ------------------------------------------------------------
-
-    if feature_name == "point_anomaly":
-        params.pop("count_strategy", None)
-
-        if params.get("mode") == "multiple":
-            params.pop("location", None)
-            params.pop("num_anomalies", None)
-            params.pop("is_spike", None)
-
-    # ------------------------------------------------------------
-    # Collective anomaly:
-    # JSON uses shape_strategy; apply_feature expects anomaly_shapes.
-    # ------------------------------------------------------------
-
-    if feature_name == "collective_anomaly":
-        strategy = params.pop(
-            "shape_strategy",
-            None,
-        )
-
-        count = int(
-            params.get(
-                "num_anomalies",
-                1,
-            )
-        )
-
-        if strategy == "mixed":
-            params["anomaly_shapes"] = [
-                rng.choice(
-                    VALID_COLLECTIVE_SHAPES
-                )
-                for _ in range(count)
-            ]
-
-        elif strategy is not None:
-            # A one-item list is intentionally accepted by generator.py;
-            # it repeats the same shape for all anomalies.
-            params["anomaly_shapes"] = [
-                strategy
-            ]
-
-        if params.get("mode") == "multiple":
-            params.pop("location", None)
-
-    # ------------------------------------------------------------
-    # Contextual anomaly:
-    # multiple event cases do not use a single location.
-    # ------------------------------------------------------------
-
-    if (
-        feature_name == "contextual_anomaly"
-        and params.get("mode") == "multiple"
-    ):
-        params.pop("location", None)
-
-    # ------------------------------------------------------------
-    # Trend shift:
-    # multiple cases do not have one fixed location.
-    # "mixed" is handled by the patched apply_feature() logic.
-    # ------------------------------------------------------------
-
-    if (
-        feature_name == "trend_shift"
-        and params.get("mode") == "multiple"
-    ):
-        params.pop("location", None)
-
-    return params
-
-
-def materialize_composition(
-    composition: Dict[str, Any],
-    feature_variants: Dict[str, List[Dict[str, Any]]],
-    variant_cursors: Dict[str, int],
-    rng: random.Random,
-) -> Tuple[
-    Dict[str, Any],
-    Dict[str, str],
-]:
-    """Attach exactly one deterministic categorical variant per active feature."""
-
-    concrete = deepcopy(
-        composition
-    )
-
-    feature_overrides = {}
-    selected_variant_ids = {}
-
-    for feature_name in concrete.get(
-        "features",
-        [],
-    ):
-        variants = feature_variants.get(
-            feature_name,
-            [],
-        )
-
-        if not variants:
-            continue
-
-        cursor = variant_cursors.get(
-            feature_name,
-            0,
-        )
-
-        variant = variants[
-            cursor % len(variants)
-        ]
-
-        variant_cursors[
-            feature_name
-        ] = cursor + 1
-
-        variant_id = variant.get(
-            "variant_id",
-            f"{feature_name}__variant-{cursor}",
-        )
-
-        params = _normalize_variant_params(
-            feature_name=feature_name,
-            raw_params=variant.get(
-                "params",
-                {},
-            ),
-            rng=rng,
-        )
-
-        feature_overrides[
-            feature_name
-        ] = params
-
-        selected_variant_ids[
-            feature_name
-        ] = variant_id
-
-    concrete[
-        "feature_overrides"
-    ] = feature_overrides
-
-    return (
-        concrete,
-        selected_variant_ids,
-    )
-
 
 # ============================================================================
 # PDF
@@ -534,7 +356,7 @@ def main():
 
     parser.add_argument(
         "--variant-config",
-        default="full_dataset_variant_aware.json",
+        default="full_dataset.json",
     )
 
     parser.add_argument(
@@ -699,13 +521,12 @@ def main():
             compositions,
             start=1,
         ):
-            concrete, selected_variants = (
-                materialize_composition(
-                    composition=composition,
-                    feature_variants=full_cfg[
-                        "feature_variants"
-                    ],
-                    variant_cursors=variant_cursors,
+            concrete, selected_variants = next(
+                expand_composition_variants(
+                    composition,
+                    full_cfg["feature_variants"],
+                    mode="cycle",
+                    cursors=variant_cursors,
                     rng=variant_rng,
                 )
             )
