@@ -76,7 +76,7 @@ TEST_LAG = 10
 SEED = 42
 
 OUTPUT_DIR = Path(
-    "betise/combination_tests/test_outputs/pure_sarma_sarima_volatility"
+    "examples/combination_tests/test_outputs/pure_sarma_sarima_volatility"
 )
 PLOT_DIR = OUTPUT_DIR / "plots"
 
