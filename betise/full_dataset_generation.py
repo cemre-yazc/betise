@@ -19,7 +19,7 @@ The planner resolves a valid composition into:
         -> structural break
         -> anomaly
 
-Pure SARMA/SARIMA are treated as internal stochastic seasonal cores because
+SARMA/SARIMA are treated as internal stochastic seasonal cores because
 their seasonal AR/MA dynamics are generated inside the base generator.
 """
 
@@ -79,8 +79,8 @@ EXTERNAL_FOURIER_BASES = {
 }
 
 INTERNAL_SEASONAL_CORES = {
-    "pure_sarma",
-    "pure_sarima",
+    "sarma",
+    "sarima",
 }
 
 DYNAMIC_CORE_FAMILIES = {

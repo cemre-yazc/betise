@@ -36,11 +36,11 @@
       "amplitudes": [0.5, 2.0]
     },
 
-    "pure_sarma": {
+    "sarma": {
       "period": [7, 12, 24, 52]
     },
 
-    "pure_sarima": {
+    "sarima": {
       "period": [7, 12, 24, 52],
       "diff": 0,
       "seasonal_diff": 1

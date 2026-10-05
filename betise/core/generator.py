@@ -25,8 +25,8 @@ class TimeSeriesGenerator:
         'fractional_process': self.generate_fractional_process,
         'single_seasonality': self.generate_single_seasonality,
         'multiple_seasonality': self.generate_multiple_seasonality,
-        'pure_sarima_seasonality': self.generate_pure_sarima,
-        'pure_sarma_seasonality': self.generate_pure_sarma,
+        'sarima_seasonality': self.generate_sarima_seasonality,
+        'sarma_seasonality': self.generate_sarma_seasonality,
         'single_point_anomaly' : self.generate_point_anomaly,
         'multiple_point_anomalies': self.generate_point_anomalies,
         'collective_anomalies': self.generate_collective_anomalies,
@@ -1740,8 +1740,8 @@ class TimeSeriesGenerator:
 
 
         elif subtype in {
-            "pure_sarma",
-            "pure_sarima",
+            "sarma",
+            "sarima",
         }:
 
             raise ValueError(
@@ -3108,7 +3108,7 @@ class TimeSeriesGenerator:
 
         return df, info
 
-    def generate_pure_sarma(
+    def generate_sarma_seasonality(
         self,
         period=None,
         noise_std=None,
@@ -3384,7 +3384,7 @@ class TimeSeriesGenerator:
 
         info = {
             "type": "seasonal",
-            "subtype": "PURE_SARMA",
+            "subtype": "sarma",
 
             "periods": [s],
 
@@ -3427,7 +3427,7 @@ class TimeSeriesGenerator:
 
         return df, info
 
-    def generate_pure_sarima(
+    def generate_sarima_seasonality(
         self,
         period=None,
         noise_std=None,
@@ -3630,7 +3630,7 @@ class TimeSeriesGenerator:
 
         info = {
             "type": "seasonal",
-            "subtype": "PURE_SARIMA",
+            "subtype": "sarima",
             "periods": [s],
             "period_meanings": {s: self.get_period_meanings(s)},
             "seasonality_source": "stochastic_sarima",
@@ -3670,13 +3670,13 @@ class TimeSeriesGenerator:
         "multiple"
             -> deterministic multiple Fourier seasonality
     
-        "pure_sarma"
+        "sarma"
             -> textbook stochastic SARMA
 
             phi(B) Phi(B^s) Y_t
                 = theta(B) Theta(B^s) epsilon_t
 
-        "pure_sarima"
+        "sarima"
             -> textbook stochastic SARIMA
 
             phi(B) Phi(B^s)
@@ -3691,8 +3691,8 @@ class TimeSeriesGenerator:
 
             single
             multiple
-            pure_sarma
-            pure_sarima
+            sarma
+            sarima
 
         """
 
@@ -3704,8 +3704,8 @@ class TimeSeriesGenerator:
             kind = random.choice([
                 "single",
                 "multiple",
-                "pure_sarma",
-                "pure_sarima"
+                "sarma",
+                "sarima"
             ])
 
         # =====================================================
@@ -3741,9 +3741,9 @@ class TimeSeriesGenerator:
         # PURE STOCHASTIC SARMA
         # =====================================================
 
-        elif kind == "pure_sarma":
+        elif kind == "sarma":
 
-            df, info = self.generate_pure_sarma(
+            df, info = self.generate_sarma_seasonality(
                 period=period
             )
 
@@ -3751,9 +3751,9 @@ class TimeSeriesGenerator:
         # PURE STOCHASTIC SARIMA
         # =====================================================
 
-        elif kind == "pure_sarima":
+        elif kind == "sarima":
 
-            df, info = self.generate_pure_sarima(
+            df, info = self.generate_sarima_seasonality(
                 period=period
             )
 
@@ -3770,7 +3770,7 @@ class TimeSeriesGenerator:
 
             raise ValueError(
                 "Invalid kind. Choose from: "
-                "'single', 'multiple','pure_sarma', 'pure_sarima'. "
+                "'single', 'multiple','sarma', 'sarima'. "
             )
 
         return df, info

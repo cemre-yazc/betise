@@ -1,10 +1,10 @@
 """
 JOINT STATISTICAL VALIDATION
-Pure SARMA / Pure SARIMA + Volatility
+SARMA / SARIMA + Volatility
 
 Tests:
-    pure_sarma
-    pure_sarima
+    sarma
+    sarima
 
         x
 
@@ -18,10 +18,10 @@ Goal
 Validate that BOTH stochastic seasonality and volatility remain
 statistically detectable in the SAME generated series.
 
-Pure SARMA:
+SARMA:
     phi(B) Phi(B^s) Y_t = theta(B) Theta(B^s) epsilon_t
 
-Pure SARIMA:
+SARIMA:
     phi(B) Phi(B^s) (1-B)^d (1-B^s)^D Y_t
         = theta(B) Theta(B^s) epsilon_t
 
@@ -39,7 +39,7 @@ Controls:
 1. Matched nonseasonal volatility-driven process:
        checks false seasonal detections.
 
-2. Pure seasonal model + Gaussian innovations:
+2. Seasonal model + Gaussian innovations:
        checks false volatility detections.
 """
 
@@ -64,7 +64,7 @@ from betise.core.generator import TimeSeriesGenerator
 # SETTINGS
 # ============================================================
 
-MODELS = ["pure_sarma", "pure_sarima"]
+MODELS = ["sarma", "sarima"]
 VOLATILITY_TYPES = ["arch", "garch", "egarch", "aparch"]
 PERIODS = [7, 12, 24, 52]
 
@@ -76,7 +76,7 @@ TEST_LAG = 10
 SEED = 42
 
 OUTPUT_DIR = Path(
-    "examples/combination_tests/test_outputs/pure_sarma_sarima_volatility"
+    "examples/combination_tests/test_outputs/sarma_sarima__volatility"
 )
 PLOT_DIR = OUTPUT_DIR / "plots"
 
@@ -89,7 +89,7 @@ random.seed(SEED)
 # ============================================================
 
 def case_label(model, period):
-    prefix = "PSARMA" if model == "pure_sarma" else "PSARIMA"
+    prefix = "SARMA" if model == "sarma" else "SARIMA"
     return f"{prefix}_S{period}"
 
 
@@ -291,13 +291,13 @@ def generate_combination(model, period, volatility_kind):
     )
     innovations = np.asarray(innovations, dtype=float)
 
-    if model == "pure_sarma":
-        combined_df, seasonal_info = ts.generate_pure_sarma(
+    if model == "sarma":
+        combined_df, seasonal_info = ts.generate_sarma_seasonality(
             period=period,
             innovations=innovations,
         )
     else:
-        combined_df, seasonal_info = ts.generate_pure_sarima(
+        combined_df, seasonal_info = ts.generate_sarima_seasonality(
             period=period,
             d=0,
             D=1,
@@ -433,12 +433,12 @@ def run_volatility_only_control(model, period, volatility_kind):
 
 # ============================================================
 # NEGATIVE CONTROL 2
-# PURE SEASONAL MODEL + GAUSSIAN INNOVATIONS
+# SEASONAL MODEL + GAUSSIAN INNOVATIONS
 # ============================================================
 
 def run_seasonal_gaussian_control(model, period):
     """
-    Pure SARMA/SARIMA seasonal structure is present,
+    SARMA/SARIMA seasonal structure is present,
     but conditional heteroskedasticity is absent.
 
     Recovered volatility detection here is a false positive.
@@ -447,13 +447,13 @@ def run_seasonal_gaussian_control(model, period):
     ts = TimeSeriesGenerator(length=LENGTH)
     innovations = np.random.normal(0, 1, LENGTH)
 
-    if model == "pure_sarma":
-        df, info = ts.generate_pure_sarma(
+    if model == "sarma":
+        df, info = ts.generate_sarma_seasonality(
             period=period,
             innovations=innovations,
         )
     else:
-        df, info = ts.generate_pure_sarima(
+        df, info = ts.generate_sarima_seasonality(
             period=period,
             d=0,
             D=1,
@@ -649,8 +649,7 @@ def summarize_volatility_fp(results):
 
 def save_representative_plots():
     """
-    Save one representative 3-panel figure for every
-    pure seasonal + volatility combination.
+    Save one representative 3-panel figure for every seasonal + volatility combination.
 
     Panel 1:
         source volatility innovations
@@ -663,7 +662,7 @@ def save_representative_plots():
         final combined series
 
     Note:
-        Pure SARMA/SARIMA seasonality is not an additive Fourier
+        SARMA/SARIMA seasonality is not an additive Fourier
         component, so Panel 2 is a diagnostic seasonal EFFECT,
         not an independent additive component.
     """
@@ -764,7 +763,7 @@ if __name__ == "__main__":
     )
 
     print("\n========================================")
-    print("PURE SARMA / SARIMA + VOLATILITY")
+    print("SARMA / SARIMA + VOLATILITY")
     print("JOINT STATISTICAL VALIDATION")
     print("========================================\n")
 

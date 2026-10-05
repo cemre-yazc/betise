@@ -376,21 +376,21 @@ def generate_base_series(
         )
 
 
-    if base_series == "pure_sarma":
-        p = seasonality_cfg.get("pure_sarma", {})
+    if base_series == "sarma":
+        p = seasonality_cfg.get("sarma", {})
         period = p.get("period")
 
         if isinstance(period, list):
             valid_periods = ts.get_valid_calendar_periods(allowed_periods=period)
             period = int(random.choice(valid_periods)) if valid_periods else None
 
-        return ts.generate_pure_sarma(
+        return ts.generate_sarma_seasonality(
             period=period,
             innovations=innovations
         )
 
-    if base_series == "pure_sarima":
-        p = seasonality_cfg.get("pure_sarima", {})
+    if base_series == "sarima":
+        p = seasonality_cfg.get("sarima", {})
         period = p.get("period")
 
         if isinstance(period, list):
@@ -400,7 +400,7 @@ def generate_base_series(
         d = int(_sample_value(p.get("diff", 0)))
         D = int(_sample_value(p.get("seasonal_diff", 1)))
 
-        return ts.generate_pure_sarima(
+        return ts.generate_sarima_seasonality(
             period=period,
             d=d,
             D=D,
@@ -937,7 +937,7 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
             elif (
                 base_series in {"ar", "ma", "arma"}
                 or base_series in STOCHASTIC_BASE_SERIES
-                or base_series in {"pure_sarma", "pure_sarima"}
+                or base_series in {"sarma", "sarima"}
             ):
                 innovations, volatility_info = (
                     ts.generate_volatility(

@@ -14,7 +14,7 @@ Important project conventions
 - Volatility may still be configured under ``dataset.features`` for legacy
   config compatibility, but when it participates in a validated combination
   it is treated as a mathematical BASE component.
-- ``pure_sarma`` and ``pure_sarima`` are canonical stochastic seasonal
+- ``sarma`` and ``sarima`` are canonical stochastic seasonal
   base generators.
 - Component-preservation statistics are validated by dedicated combination
   tests. They are not re-run inside the dataset-generation loop.
@@ -94,8 +94,8 @@ STOCHASTIC_BASE_SERIES = {
 SEASONAL_BASE_SERIES = {
     "single_seasonality",
     "multiple_seasonality",
-    "pure_sarma",
-    "pure_sarima",
+    "sarma",
+    "sarima",
 }
 
 VOLATILITY_BASE_SERIES = {
@@ -362,10 +362,10 @@ def resolve_base_pair_rule(component_a: str, component_b: str) -> Rule:
                 (ADDITIVE_FOURIER,),
             )
 
-        if seasonal in {"pure_sarma", "pure_sarima"}:
+        if seasonal in {"sarma", "sarima"}:
             return Rule(
                 EXCLUDE_REDUNDANT,
-                "Pure SARMA/SARIMA already contains an internal non-seasonal "
+                "SARMA/SARIMA already contains an internal non-seasonal "
                 "ARMA structure, so adding another stationary base duplicates "
                 "short-memory dynamics.",
             )
@@ -409,10 +409,10 @@ def resolve_base_pair_rule(component_a: str, component_b: str) -> Rule:
                 (ADDITIVE_FOURIER,),
             )
 
-        if seasonal in {"pure_sarma", "pure_sarima"}:
+        if seasonal in {"sarma", "sarima"}:
             return Rule(
                 EXCLUDE_NON_IDENTIFIABLE,
-                "Pure SARMA/SARIMA already contains non-seasonal ARMA dynamics; "
+                "SARMA/SARIMA already contains non-seasonal ARMA dynamics; "
                 "stacking an additional stochastic base creates overlapping "
                 "or non-identifiable dynamics.",
             )
@@ -443,7 +443,7 @@ def resolve_base_pair_rule(component_a: str, component_b: str) -> Rule:
                 "deterministic Fourier seasonality can be added on top.",                    (ADDITIVE_FOURIER,),
             )
 
-        if seasonal in {"pure_sarma", "pure_sarima"}:
+        if seasonal in {"sarma", "sarima"}:
             return Rule(
                 ALLOW_VALIDATED,
                 "Volatility innovations can drive the stochastic seasonal "
@@ -467,17 +467,17 @@ def resolve_base_pair_rule(component_a: str, component_b: str) -> Rule:
                 (ADDITIVE_FOURIER,),
             )
 
-        if seasonal == "pure_sarma":
+        if seasonal == "sarma":
             return Rule(
                 EXCLUDE_REDUNDANT,
-                "Pure SARMA contains a non-seasonal ARMA structure that overlaps "
+                "SARMA contains a non-seasonal ARMA structure that overlaps "
                 "with ARFIMA's own short-memory ARMA structure.",
             )
 
-        if seasonal == "pure_sarima":
+        if seasonal == "sarima":
             return Rule(
                 EXCLUDE_DOMINATED,
-                "Pure SARIMA contains seasonal integration and non-seasonal ARMA "
+                "SARIMA contains seasonal integration and non-seasonal ARMA "
                 "dynamics that do not provide a cleanly identifiable composition "
                 "with stationary fractional long memory.",
             )
@@ -911,13 +911,13 @@ def validate_requested_combination(
                     )
 
                 elif feature == "contextual_anomaly" and any(
-                    component in {"pure_sarma", "pure_sarima"}
+                    component in {"sarma", "sarima"}
                     for component in known_bases
                 ):
                     dependency_errors.append(
                         "contextual_anomaly currently requires deterministic Fourier "
-                        "seasonality and is therefore not supported with pure_sarma "
-                        "or pure_sarima."
+                        "seasonality and is therefore not supported with sarma "
+                        "or sarima."
                     )
 
             elif requirement in OVERLAY_FEATURES:
