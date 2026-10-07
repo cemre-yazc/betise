@@ -89,15 +89,6 @@ DYNAMIC_CORE_FAMILIES = {
     "fractional",
 }
 
-PRIMARY_LABELS = {
-    "stationary": 0,
-    "anomaly": 1,
-    "trend": 2,
-    "stochastic": 3,
-    "seasonality": 4,
-    "volatility": 5,
-    "structural_break": 6,
-}
 
 
 # ============================================================================
@@ -246,7 +237,7 @@ def build_base_generation_plan(
 
     if dynamic_cores and internal_seasonal:
         raise ValueError(
-            "A dynamic core and pure SARMA/SARIMA cannot both be "
+            "A dynamic core and SARMA/SARIMA cannot both be "
             "execution cores in the same canonical composition."
         )
 
@@ -1049,49 +1040,6 @@ def count_composition_variants(
 # METADATA
 # ============================================================================
 
-def _initial_primary_metadata(
-    df: pd.DataFrame,
-    primary_base: str,
-) -> Tuple[str, int]:
-    family = base_family(
-        primary_base
-    )
-
-    if family == "seasonality":
-        return (
-            "seasonality",
-            PRIMARY_LABELS["seasonality"],
-        )
-
-    if family == "volatility":
-        return (
-            "volatility",
-            PRIMARY_LABELS["volatility"],
-        )
-
-    if family == "stochastic":
-        return (
-            "stochastic",
-            PRIMARY_LABELS["stochastic"],
-        )
-
-    is_stationary = (
-        int(df["stationary"].iloc[0])
-        if "stationary" in df.columns
-        else 1
-    )
-
-    if is_stationary == 1:
-        return (
-            "stationary",
-            PRIMARY_LABELS["stationary"],
-        )
-
-    return (
-        "stochastic",
-        PRIMARY_LABELS["stochastic"],
-    )
-
 
 def _create_record(
     *,
@@ -1105,17 +1053,11 @@ def _create_record(
         length=length,
         label=label,
         is_stationary=meta.get("is_stationary", 1),
-        primary_category=meta.get("primary_category"),
-        primary_label=meta.get("primary_label"),
-        sub_category=meta.get("sub_category"),
-        sub_label=meta.get("sub_label"),
-        base_series=meta.get("base_series"),
         base_components=meta.get("base_components"),
         base_families=meta.get("base_families"),
         composition_steps=meta.get("composition_steps"),
         feature_components=meta.get("feature_components"),
         feature_families=meta.get("feature_families"),
-        feature_infos=meta.get("feature_infos"),
         ar_order=meta.get("ar_order"),
         ma_order=meta.get("ma_order"),
         ar_coefs=meta.get("ar_coefs"),
@@ -1139,95 +1081,44 @@ def _create_record(
         seasonal_ar_coefs=meta.get("seasonal_ar_coefs"),
         seasonal_ma_coefs=meta.get("seasonal_ma_coefs"),
         seasonal_difference=meta.get("seasonal_difference"),
-        seasonality_period_meanings=meta.get(
-            "seasonality_period_meanings"
-        ),
+        seasonality_period_meanings=meta.get("seasonality_period_meanings"),
         num_harmonics=meta.get("num_harmonics"),
-        fourier_coefficients=meta.get(
-            "fourier_coefficients"
-        ),
-        seasonal_unit_root=meta.get(
-            "seasonal_unit_root"
-        ),
-        seasonality_scale_factor=meta.get(
-            "seasonality_scale_factor"
-        ),
-        seasonality_strength=meta.get(
-            "seasonality_strength"
-        ),
-        seasonality_period_balance_factors=meta.get(
-            "seasonality_period_balance_factors"
-        ),
-        seasonality_calibration_difference_order=meta.get(
-            "seasonality_calibration_difference_order"
-        ),
-        seasonal_initial_std=meta.get(
-            "seasonal_initial_std"
-        ),
+        fourier_coefficients=meta.get("fourier_coefficients"),
+        seasonal_unit_root=meta.get("seasonal_unit_root"),
+        seasonality_scale_factor=meta.get("seasonality_scale_factor"),
+        seasonality_strength=meta.get("seasonality_strength"),
+        seasonality_period_balance_factors=meta.get("seasonality_period_balance_factors"),
+        seasonality_calibration_difference_order=meta.get("seasonality_calibration_difference_order"),
+        seasonal_initial_std=meta.get("seasonal_initial_std"),
         volatility_type=meta.get("volatility_type"),
-        volatility_alpha=meta.get(
-            "volatility_alpha"
-        ),
-        volatility_beta=meta.get(
-            "volatility_beta"
-        ),
-        volatility_omega=meta.get(
-            "volatility_omega"
-        ),
-        volatility_theta=meta.get(
-            "volatility_theta"
-        ),
-        volatility_lambda=meta.get(
-            "volatility_lambda"
-        ),
-        volatility_gamma=meta.get(
-            "volatility_gamma"
-        ),
-        volatility_delta=meta.get(
-            "volatility_delta"
-        ),
-        fractional_type=meta.get(
-            "fractional_type"
-        ),
-        fractional_integrated=meta.get(
-            "fractional_integrated"
-        ),
+        volatility_alpha=meta.get("volatility_alpha"),
+        volatility_beta=meta.get("volatility_beta"),
+        volatility_omega=meta.get("volatility_omega"),
+        volatility_theta=meta.get("volatility_theta"),
+        volatility_lambda=meta.get("volatility_lambda"),
+        volatility_gamma=meta.get("volatility_gamma"),
+        volatility_delta=meta.get("volatility_delta"),
+        fractional_type=meta.get("fractional_type"),
+        fractional_integrated=meta.get("fractional_integrated"),
         long_memory=meta.get("long_memory"),
         d_parameter=meta.get("d_parameter"),
         anomaly_type=meta.get("anomaly_type"),
+        anomaly_shapes=meta.get("anomaly_shapes"),
         anomaly_count=meta.get("anomaly_count"),
-        anomaly_indices=meta.get(
-            "anomaly_indices"
-        ),
+        anomaly_indices=meta.get("anomaly_indices"),
+        anomaly_magnitudes=meta.get("anomaly_magnitudes"),
         break_type=meta.get("break_type"),
         break_count=meta.get("break_count"),
-        break_indices=meta.get(
-            "break_indices"
-        ),
-        break_magnitudes=meta.get(
-            "break_magnitudes"
-        ),
-        trend_shift_change_types=meta.get(
-            "trend_shift_change_types"
-        ),
-        location_point=meta.get(
-            "location_point"
-        ),
-        location_collective=meta.get(
-            "location_collective"
-        ),
-        location_mean_shift=meta.get(
-            "location_mean_shift"
-        ),
-        location_variance_shift=meta.get(
-            "location_variance_shift"
-        ),
-        location_trend_shift=meta.get(
-            "location_trend_shift"
-        ),
-        location_contextual=meta.get(
-            "location_contextual"
-        ),
+        break_indices=meta.get("break_indices"),
+        break_magnitudes=meta.get("break_magnitudes"),
+        break_directions=meta.get("break_directions"),
+        trend_shift_change_types=meta.get("trend_shift_change_types"),
+        location_point=meta.get("location_point"),
+        location_collective=meta.get("location_collective"),
+        location_mean_shift=meta.get("location_mean_shift"),
+        location_variance_shift=meta.get("location_variance_shift"),
+        location_trend_shift=meta.get("location_trend_shift"),
+        location_contextual=meta.get("location_contextual"),
     )
 
 
@@ -1280,12 +1171,6 @@ def generate_full_series(
         "seasonal_info": None,
     }
 
-    primary_category, primary_label = (
-        _initial_primary_metadata(
-            df,
-            plan["primary_base"],
-        )
-    )
 
     meta: Dict[str, Any] = {
         "is_stationary": (
@@ -1293,22 +1178,21 @@ def generate_full_series(
             if "stationary" in df.columns
             else 1
         ),
+
         "is_seasonal": (
             int(df["seasonal"].iloc[0])
             if "seasonal" in df.columns
             else 0
         ),
-        "primary_category": primary_category,
-        "primary_label": primary_label,
-        "sub_category": plan["primary_base"],
-        "sub_label": 0,
-        "base_series": plan["primary_base"],
+
         "base_components": list(
             rule_report.base_components
         ),
+
         "base_families": list(
             rule_report.base_families
         ),
+
         "composition_steps": list(
             rule_report.composition_steps
         ),
@@ -1328,8 +1212,6 @@ def generate_full_series(
         composition,
     )
 
-    feature_records = []
-
     # rules.py returns canonical order:
     # trend -> structural break -> anomaly.
     for feature_name in rule_report.feature_components:
@@ -1347,16 +1229,6 @@ def generate_full_series(
             state,
         )
 
-        feature_records.append({
-            "name": feature_name,
-            "family": (
-                "trend"
-                if feature_name.endswith("_trend")
-                and feature_name != "trend_shift"
-                else None
-            ),
-            "info": info,
-        })
 
         meta = update_metadata(
             meta,
@@ -1374,10 +1246,6 @@ def generate_full_series(
         rule_report.feature_families
     )
 
-    meta["feature_infos"] = {
-        record["name"]: record["info"]
-        for record in feature_records
-    }
 
     meta["is_stationary"] = (
         int(df["stationary"].iloc[0])

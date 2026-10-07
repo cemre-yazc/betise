@@ -16,6 +16,9 @@ from betise.scenario_builder import (
     iter_materialized_scenarios,
     to_generation_composition,
     build_type_scenario,
+    is_scenario_allowed_for_length,
+    filter_feature_variants_for_length,
+    SHORT_SINGLE_ONLY_FEATURES,
 )
 
 
@@ -26,12 +29,13 @@ EXPECTED_BASE_COUNTS = {
     3: 72,
 }
 
+
 EXPECTED_TYPE_COUNTS = {
     1: 18,
     2: 232,
-    3: 1132,
-    4: 2650,
-    5: 3060,
+    3: 1168,
+    4: 3082,
+    5: 4870,
 }
 
 EXPECTED_FEATURE_VARIANT_COUNTS = {
@@ -40,28 +44,28 @@ EXPECTED_FEATURE_VARIANT_COUNTS = {
     "cubic_trend": 6,
     "exponential_trend": 2,
     "damped_trend": 2,
-    "mean_shift": 9,
-    "variance_shift": 9,
-    "trend_shift": 21,
+    "mean_shift": 8,
+    "variance_shift": 8,
+    "trend_shift": 17,
     "point_anomaly": 7,
-    "collective_anomaly": 33,
-    "contextual_anomaly": 6,
+    "collective_anomaly": 27,
+    "contextual_anomaly": 5,
 }
 
 EXPECTED_ALL_COUNTS = {
     1: 18,
-    2: 1416,
-    3: 36096,
-    4: 355752,
-    5: 874944,
+    2: 1274,
+    3: 32042,
+    4: 378696,
+    5: 2451158,
 }
 
 EXPECTED_SAMPLED_3_COUNTS = {
     1: 18,
     2: 498,
-    3: 3036,
-    4: 7734,
-    5: 9180,
+    3: 3144,
+    4: 9030,
+    5: 14610,
 }
 
 
@@ -115,7 +119,7 @@ def test_type_scenario_counts():
 
     assert sum(
         counts.values()
-    ) == 7092
+    ) == 9370
 
 
 def test_all_combination_sizes_exist():
@@ -292,7 +296,7 @@ def test_ar_quadratic_has_six_categorical_recipes():
     )
 
 
-def test_linear_mean_shift_all_mode_is_18():
+def test_linear_mean_shift_all_mode_is_16():
     scenarios = [
         scenario
         for scenario
@@ -323,7 +327,7 @@ def test_linear_mean_shift_all_mode_is_18():
 
     assert len(
         materialized
-    ) == 18
+    ) == 16
 
 
 def test_all_mode_counts():
@@ -339,7 +343,7 @@ def test_all_mode_counts():
 
     assert sum(
         counts.values()
-    ) == 1268226
+    ) == 2863188
 
 
 def test_sampled_mode_counts():
@@ -356,7 +360,7 @@ def test_sampled_mode_counts():
 
     assert sum(
         counts.values()
-    ) == 20466
+    ) == 27300
 
 
 def test_sampled_does_not_duplicate_when_space_is_small():
@@ -539,3 +543,341 @@ def test_build_exact_type_scenario_rejects_invalid_combination():
                 "variance_shift",
             ],
         )
+
+def test_same_family_structural_breaks_are_allowed_and_dense_counts_are_limited():
+    scenario = build_type_scenario(
+        base_components=[
+            "ar",
+        ],
+        feature_components=[
+            "mean_shift",
+            "variance_shift",
+        ],
+    )
+
+    assert scenario[
+        "feature_components"
+    ] == [
+        "mean_shift",
+        "variance_shift",
+    ]
+
+    feature_variants = (
+        build_feature_variants()
+    )
+
+    assert (
+        count_scenario_categorical_variants(
+            scenario,
+            feature_variants=feature_variants,
+        )
+        == 49
+    )
+
+    materialized = list(
+        iter_materialized_scenarios(
+            type_scenarios=[
+                scenario
+            ],
+            categorical_mode="all",
+        )
+    )
+
+    assert len(materialized) == 49
+
+    for recipe in materialized:
+        for feature_name in [
+            "mean_shift",
+            "variance_shift",
+        ]:
+            params = recipe[
+                "feature_overrides"
+            ][feature_name]
+
+            if params.get("mode") == "multiple":
+                assert (
+                    params["num_breaks"]
+                    <= 2
+                )
+
+
+def test_same_family_anomalies_are_allowed_and_dense_counts_are_limited():
+    scenario = build_type_scenario(
+        base_components=[
+            "single_seasonality",
+        ],
+        feature_components=[
+            "collective_anomaly",
+            "contextual_anomaly",
+        ],
+    )
+
+    assert scenario[
+        "feature_components"
+    ] == [
+        "collective_anomaly",
+        "contextual_anomaly",
+    ]
+
+    feature_variants = (
+        build_feature_variants()
+    )
+
+    assert (
+        count_scenario_categorical_variants(
+            scenario,
+            feature_variants=feature_variants,
+        )
+        == 84
+    )
+
+    materialized = list(
+        iter_materialized_scenarios(
+            type_scenarios=[
+                scenario
+            ],
+            categorical_mode="all",
+        )
+    )
+
+    assert len(materialized) == 84
+
+    for recipe in materialized:
+        collective = recipe[
+            "feature_overrides"
+        ][
+            "collective_anomaly"
+        ]
+
+        contextual = recipe[
+            "feature_overrides"
+        ][
+            "contextual_anomaly"
+        ]
+
+        if (
+            collective.get("mode")
+            == "multiple"
+        ):
+            assert (
+                collective[
+                    "num_anomalies"
+                ]
+                <= 2
+            )
+
+        if (
+            contextual.get("mode")
+            == "multiple"
+        ):
+            assert (
+                contextual[
+                    "num_anomalies"
+                ]
+                <= 2
+            )
+
+
+def test_trend_family_still_allows_only_one_subtype():
+    report = (
+        validate_requested_combination(
+            base_components=[
+                "ar",
+            ],
+            feature_components=[
+                "linear_trend",
+                "quadratic_trend",
+            ],
+        )
+    )
+
+    assert not report.valid
+
+    assert any(
+        "trend" in error
+        and "At most 1" in error
+        for error in report.errors
+    )
+
+def test_short_rejects_multiple_shift_subtypes():
+    scenario = build_type_scenario(
+        base_components=[
+            "ar",
+        ],
+        feature_components=[
+            "mean_shift",
+            "variance_shift",
+        ],
+    )
+
+    assert not is_scenario_allowed_for_length(
+        scenario,
+        "short",
+    )
+
+    assert is_scenario_allowed_for_length(
+        scenario,
+        "medium",
+    )
+
+    assert is_scenario_allowed_for_length(
+        scenario,
+        "long",
+    )
+
+
+def test_short_rejects_collective_or_contextual_with_shift():
+    collective_shift = build_type_scenario(
+        base_components=[
+            "ar",
+        ],
+        feature_components=[
+            "mean_shift",
+            "collective_anomaly",
+        ],
+    )
+
+    contextual_shift = build_type_scenario(
+        base_components=[
+            "single_seasonality",
+        ],
+        feature_components=[
+            "mean_shift",
+            "contextual_anomaly",
+        ],
+    )
+
+    assert not is_scenario_allowed_for_length(
+        collective_shift,
+        "short",
+    )
+
+    assert not is_scenario_allowed_for_length(
+        contextual_shift,
+        "short",
+    )
+
+    assert is_scenario_allowed_for_length(
+        collective_shift,
+        "medium",
+    )
+
+    assert is_scenario_allowed_for_length(
+        contextual_shift,
+        "medium",
+    )
+
+
+def test_short_rejects_collective_plus_contextual():
+    scenario = build_type_scenario(
+        base_components=[
+            "single_seasonality",
+        ],
+        feature_components=[
+            "collective_anomaly",
+            "contextual_anomaly",
+        ],
+    )
+
+    assert not is_scenario_allowed_for_length(
+        scenario,
+        "short",
+    )
+
+    assert is_scenario_allowed_for_length(
+        scenario,
+        "medium",
+    )
+
+def test_short_dense_features_keep_only_single_variants():
+    feature_variants = (
+        build_feature_variants()
+    )
+
+    expected_short_counts = {
+        "mean_shift": 6,
+        "variance_shift": 6,
+        "trend_shift": 9,
+        "collective_anomaly": 15,
+        "contextual_anomaly": 3,
+    }
+
+    for (
+        feature_name,
+        expected_count,
+    ) in expected_short_counts.items():
+
+        variants = (
+            filter_feature_variants_for_length(
+                feature_name=feature_name,
+                variants=feature_variants[
+                    feature_name
+                ],
+                length_category="short",
+            )
+        )
+
+        assert len(
+            variants
+        ) == expected_count
+
+        assert all(
+            variant.get(
+                "params",
+                {},
+            ).get(
+                "mode"
+            ) != "multiple"
+            for variant in variants
+        )
+
+
+def test_short_does_not_filter_point_anomaly():
+    feature_variants = (
+        build_feature_variants()
+    )
+
+    variants = (
+        filter_feature_variants_for_length(
+            feature_name="point_anomaly",
+            variants=feature_variants[
+                "point_anomaly"
+            ],
+            length_category="short",
+        )
+    )
+
+    assert len(
+        variants
+    ) == 7
+
+
+def test_medium_and_long_keep_full_dense_variant_catalogue():
+    feature_variants = (
+        build_feature_variants()
+    )
+
+    for length_category in [
+        "medium",
+        "long",
+    ]:
+        for feature_name in (
+            SHORT_SINGLE_ONLY_FEATURES
+        ):
+            filtered = (
+                filter_feature_variants_for_length(
+                    feature_name=feature_name,
+                    variants=feature_variants[
+                        feature_name
+                    ],
+                    length_category=length_category,
+                )
+            )
+
+            assert len(
+                filtered
+            ) == len(
+                feature_variants[
+                    feature_name
+                ]
+            )

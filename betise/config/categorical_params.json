@@ -60,7 +60,7 @@
             "direction_strategy": "random"
           },
           "axes": {
-            "num_breaks": [2, 3, 4]
+            "num_breaks": [2, 3]
           }
         }
 
@@ -87,7 +87,7 @@
             "direction_strategy": "random"
           },
           "axes": {
-            "num_breaks": [2, 3, 4]
+            "num_breaks": [2, 3]
           }
         }
 
@@ -117,7 +117,7 @@
             "mode": "multiple"
           },
           "axes": {
-            "num_breaks": [2, 3, 4],
+            "num_breaks": [2, 3],
             "change_type": [
               "direction_change",
               "magnitude_change",
@@ -179,7 +179,7 @@
             "mode": "multiple"
           },
           "axes": {
-            "num_anomalies": [2, 3, 4],
+            "num_anomalies": [2, 3],
             "shape_strategy": [
               "rectangular",
               "gaussian",
@@ -212,7 +212,7 @@
             "mode": "multiple"
           },
           "axes": {
-            "num_anomalies": [2, 3, 4]
+            "num_anomalies": [2, 3]
           }
         }
 

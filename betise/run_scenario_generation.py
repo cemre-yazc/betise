@@ -62,28 +62,114 @@ def load_generation_config(config_path=None,
     return config
 
 
+def resolve_length_settings(
+    config: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Resolve user-facing length settings.
+
+    Exactly one of these must be provided:
+
+        length_category:
+            "short", "medium", or "long"
+
+        length:
+            exact positive integer series length
+    """
+
+    length_category = config.get(
+        "length_category"
+    )
+
+    length = config.get(
+        "length"
+    )
+
+    has_category = (
+        length_category is not None
+    )
+
+    has_length = (
+        length is not None
+    )
+
+    if has_category and has_length:
+        raise ValueError(
+            "Use either 'length_category' "
+            "or 'length', not both."
+        )
+
+    if not has_category and not has_length:
+        raise ValueError(
+            "Either 'length_category' "
+            "or 'length' must be provided."
+        )
+
+    # ---------------------------------------------------------
+    # Named length category
+    # ---------------------------------------------------------
+
+    if has_category:
+
+        category = str(
+            length_category
+        ).lower()
+
+        if category not in LENGTH_PRESETS:
+            raise ValueError(
+                f"Unknown length_category: {category}. "
+                "Expected 'short', 'medium', or 'long'."
+            )
+
+        return {
+            "length_category": category,
+            "length": None,
+            "length_range": (
+                LENGTH_PRESETS[
+                    category
+                ]
+            ),
+        }
+
+    # ---------------------------------------------------------
+    # Exact numeric length
+    # ---------------------------------------------------------
+
+    if (
+        not isinstance(length, int)
+        or isinstance(length, bool)
+    ):
+        raise ValueError(
+            "'length' must be a positive integer."
+        )
+
+    exact_length = length
+
+    if exact_length <= 0:
+        raise ValueError(
+            "'length' must be a positive integer."
+        )
+
+    return {
+        "length_category": None,
+        "length": exact_length,
+        "length_range": (
+            exact_length,
+            exact_length,
+        ),
+    }
+
+
 def resolve_length_range(
     config: Dict[str, Any],
 ):
-
+    """
+    Backward-compatible helper returning only the numeric range.
     """
 
-    Resolve the user-facing length category to a numerical generation range.
-
-    """
-
-    if "length" not in config:
-        raise ValueError("Generation config must contain 'length'. Expected one of: 'short', 'medium', 'long'.")
-
-
-    length_name = str(config["length"]).lower()
-
-
-    if length_name not in LENGTH_PRESETS:
-        raise ValueError(f"Unknown length category: {length_name}. Expected 'short', 'medium', or 'long'.")
-
-
-    return LENGTH_PRESETS[length_name]
+    return resolve_length_settings(
+        config
+    )["length_range"]
 
 
 def validate_requested_generation_config(
@@ -103,7 +189,6 @@ def validate_requested_generation_config(
         "num_series",
         "categorical_mode",
         "variants_per_type",
-        "length",
         "seed",
         "shard_size",}
 
@@ -144,7 +229,7 @@ def validate_requested_generation_config(
 
         raise ValueError("shard_size must be positive.")
 
-    resolve_length_range(config)
+    resolve_length_settings(config)
 
 
 # ============================================================================
@@ -165,7 +250,6 @@ def validate_generation_config(config: Dict[str, Any],
         "categorical_mode",
         "variants_per_type",
         "series_per_recipe",
-        "length",
         "seed",
         "shard_size",}
 
@@ -206,7 +290,7 @@ def validate_generation_config(config: Dict[str, Any],
 
         raise ValueError("shard_size must be positive.")
 
-    resolve_length_range(config)
+    resolve_length_settings(config)
 
     max_recipes = config.get("max_recipes")
 
@@ -271,7 +355,17 @@ def run_generation(config_path=None,
     if mode == "requested":
         validate_requested_generation_config(config)
 
-        length_range = (resolve_length_range(config))
+        length_settings = (
+            resolve_length_settings(
+                config
+            )
+        )
+
+        length_range = (
+            length_settings[
+                "length_range"
+            ]
+        )
 
         print("=" * 72)
 
@@ -289,7 +383,19 @@ def run_generation(config_path=None,
 
         print("Variants per type: ",config["variants_per_type"],)
 
-        print("Length category: ",config["length"],)
+        print(
+            "Length category: ",
+            length_settings[
+                "length_category"
+            ],
+        )
+
+        print(
+            "Exact length: ",
+            length_settings[
+                "length"
+            ],
+        )
 
         print("Length range: ",length_range,)
 
@@ -298,14 +404,22 @@ def run_generation(config_path=None,
         print("=" * 72)
 
 
-        summary = (generate_requested_dataset_to_parquet(output_dir=(config["output_dir"]),
-                base_components=(config["base_components"]),
-                feature_components=(config["features"]),
-                num_series=int(config["num_series"]),
-                categorical_mode=str(config["categorical_mode"]),
-                variants_per_type=int(config["variants_per_type"]),
-                length_range=length_range, seed=int(config["seed"]),
-                shard_size=int(config["shard_size"]),))
+        summary = generate_dataset_to_parquet(
+            output_dir=config["output_dir"],
+            min_size=int(config["min_size"]),
+            max_size=int(config["max_size"]),
+            categorical_mode=str(config["categorical_mode"]),
+            variants_per_type=int(config["variants_per_type"]),
+            series_per_recipe=int(config["series_per_recipe"]),
+
+            length_range=length_range,
+            length_category=length_settings["length_category"],
+            exact_length=length_settings["length"],
+
+            seed=int(config["seed"]),
+            shard_size=int(config["shard_size"]),
+            max_recipes=config.get("max_recipes"),
+        )
 
         print()
 
@@ -321,7 +435,17 @@ def run_generation(config_path=None,
 
     validate_generation_config(config)
 
-    length_range = (resolve_length_range(config))
+    length_settings = (
+        resolve_length_settings(
+            config
+        )
+    )
+
+    length_range = (
+        length_settings[
+            "length_range"
+        ]
+    )
 
     estimate = (build_generation_estimate(config))
 
@@ -347,7 +471,19 @@ def run_generation(config_path=None,
 
     print("Estimated series: ",estimate["estimated_series"],)
 
-    print("Length category: ",config["length"],)
+    print(
+        "Length category: ",
+        length_settings[
+            "length_category"
+        ],
+    )
+
+    print(
+        "Exact length: ",
+        length_settings[
+            "length"
+        ],
+    )
 
     print("Length range: ",length_range,)
 
@@ -372,16 +508,21 @@ def run_generation(config_path=None,
     # Actual generation
     # ------------------------------------------------------------
 
-    summary = (generate_dataset_to_parquet(
-            output_dir=(config["output_dir"]),
-            min_size=int(config["min_size"]),
-            max_size=int(config["max_size"]),
-            categorical_mode=str(config["categorical_mode"]),
-            variants_per_type=int(config["variants_per_type"]),
-            series_per_recipe=int(config["series_per_recipe"]),
-            length_range=length_range,seed=int(config["seed"]),
-            shard_size=int(config["shard_size"]),
-            max_recipes=(config.get("max_recipes")),))
+    summary = generate_requested_dataset_to_parquet(
+        output_dir=config["output_dir"],
+        base_components=config["base_components"],
+        feature_components=config["features"],
+        num_series=int(config["num_series"]),
+        categorical_mode=str(config["categorical_mode"]),
+        variants_per_type=int(config["variants_per_type"]),
+
+        length_range=length_range,
+        length_category=length_settings["length_category"],
+        exact_length=length_settings["length"],
+
+        seed=int(config["seed"]),
+        shard_size=int(config["shard_size"]),
+    )
 
 
     print()

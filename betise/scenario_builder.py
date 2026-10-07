@@ -119,6 +119,8 @@ def enumerate_valid_base_compositions(
 def enumerate_type_scenarios(
     min_size: int = 1,
     max_size: int = 5,
+    length_category=None,
+    length=None,
 ) -> List[Dict[str, Any]]:
     """
     Enumerate every valid BeTiSe type-level scenario.
@@ -248,40 +250,41 @@ def enumerate_type_scenarios(
                     f"{scenario_name}"
                 )
 
+                scenario = {
+                    "scenario_id": scenario_id,
+                    "name": scenario_name,
+                    "combination_size": combination_size,
+
+                    "base_components": list(
+                        report.base_components
+                    ),
+
+                    "base_families": list(
+                        report.base_families
+                    ),
+
+                    "feature_components": list(
+                        report.feature_components
+                    ),
+
+                    "feature_families": list(
+                        report.feature_families
+                    ),
+
+                    "composition_steps": list(
+                        report.composition_steps
+                    ),
+                }
+
+                if not is_scenario_allowed_for_length(
+                    scenario,
+                    length_category=length_category,
+                    length=length,
+                ):
+                    continue
+
                 scenarios.append(
-                    {
-                        "scenario_id": (
-                            scenario_id
-                        ),
-
-                        "name": (
-                            scenario_name
-                        ),
-
-                        "combination_size": (
-                            combination_size
-                        ),
-
-                        "base_components": list(
-                            report.base_components
-                        ),
-
-                        "base_families": list(
-                            report.base_families
-                        ),
-
-                        "feature_components": list(
-                            report.feature_components
-                        ),
-
-                        "feature_families": list(
-                            report.feature_families
-                        ),
-
-                        "composition_steps": list(
-                            report.composition_steps
-                        ),
-                    }
+                    scenario
                 )
 
     # Deterministic ordering.
@@ -298,9 +301,30 @@ def enumerate_type_scenarios(
 
     return scenarios
 
+def _uses_short_policy(
+    length_category=None,
+    length=None,
+) -> bool:
+    """
+    Return True when short-series generation rules should apply.
+    """
+
+    if length_category is not None:
+        return (
+            str(length_category).lower()
+            == "short"
+        )
+
+    if length is not None:
+        return 50 <= int(length) <= 100
+
+    return False
+
 def build_type_scenario(
     base_components,
     feature_components=(),
+    length_category=None,
+    length=None,
 ) -> Dict[str, Any]:
     """
     Build one exact canonical type-level scenario.
@@ -361,7 +385,7 @@ def build_type_scenario(
         f"{scenario_name}"
     )
 
-    return {
+    scenario = {
         "scenario_id": scenario_id,
         "name": scenario_name,
         "combination_size": combination_size,
@@ -386,6 +410,18 @@ def build_type_scenario(
             report.composition_steps
         ),
     }
+
+    if not is_scenario_allowed_for_length(
+        scenario,
+        length_category=length_category,
+        length=length,
+    ):
+        raise ValueError(
+            "Requested combination is not allowed "
+            "for the selected series length."
+        )
+
+    return scenario
 
 
 # ============================================================================
@@ -760,6 +796,229 @@ def count_feature_variants(
     }
 
 # ============================================================================
+# SCENARIO-DEPENDENT CATEGORICAL RULES
+# ============================================================================
+
+DENSE_EVENT_FEATURES = {
+    "collective_anomaly",
+    "contextual_anomaly",
+    "mean_shift",
+    "variance_shift",
+    "trend_shift",
+}
+
+
+DENSE_EVENT_COUNT_KEYS = {
+    "collective_anomaly": "num_anomalies",
+    "contextual_anomaly": "num_anomalies",
+    "mean_shift": "num_breaks",
+    "variance_shift": "num_breaks",
+    "trend_shift": "num_breaks",
+}
+
+SHORT_SINGLE_ONLY_FEATURES = {
+    "collective_anomaly",
+    "contextual_anomaly",
+    "mean_shift",
+    "variance_shift",
+    "trend_shift",
+}
+
+
+SHORT_BREAK_FEATURES = {
+    "mean_shift",
+    "variance_shift",
+    "trend_shift",
+}
+
+def is_scenario_allowed_for_length(
+    scenario,
+    length_category=None,
+    length=None,
+) -> bool:
+    """
+    Return whether a type-level scenario is allowed for
+    the requested length category.
+
+    Medium and long currently use the full canonical
+    scenario space.
+
+    Short series use a reduced overlay space to avoid
+    excessive event density.
+    """
+
+    if length_category is None:
+        return True
+
+    length_category = (
+        str(length_category).lower()
+    )
+
+    if not _uses_short_policy(
+        length_category=length_category,
+        length=length,
+    ):
+        return True
+
+    features = set(
+        scenario.get(
+            "feature_components",
+            [],
+        )
+    )
+
+    shifts = (
+        features
+        & SHORT_BREAK_FEATURES
+    )
+
+    # --------------------------------------------------------
+    # More than one structural-break subtype
+    # --------------------------------------------------------
+
+    if len(shifts) > 1:
+        return False
+
+    # --------------------------------------------------------
+    # Collective + contextual anomaly
+    # --------------------------------------------------------
+
+    if {
+        "collective_anomaly",
+        "contextual_anomaly",
+    }.issubset(features):
+        return False
+
+    # --------------------------------------------------------
+    # Collective anomaly + any structural break
+    # --------------------------------------------------------
+
+    if (
+        "collective_anomaly" in features
+        and shifts
+    ):
+        return False
+
+    # --------------------------------------------------------
+    # Contextual anomaly + any structural break
+    # --------------------------------------------------------
+
+    if (
+        "contextual_anomaly" in features
+        and shifts
+    ):
+        return False
+
+    return True
+
+def filter_feature_variants_for_length(
+    feature_name,
+    variants,
+    length_category=None,
+    length=None,
+):
+    """
+    Apply length-specific categorical restrictions.
+
+    For short series, dense event features are restricted
+    to single-event variants only.
+
+    Medium and long series keep the full categorical
+    variant catalogue.
+    """
+
+    if length_category is None:
+        return list(variants)
+
+    length_category = (
+        str(length_category).lower()
+    )
+
+    if not _uses_short_policy(
+        length_category=length_category,
+        length=length,
+    ):
+        return variants
+
+    if (
+        feature_name
+        not in SHORT_SINGLE_ONLY_FEATURES
+    ):
+        return list(variants)
+
+    return [
+        variant
+        for variant in variants
+        if variant.get(
+            "params",
+            {},
+        ).get(
+            "mode"
+        ) != "multiple"
+    ]
+
+def filter_feature_variants_for_scenario(
+    feature_name: str,
+    variants,
+    active_features,
+):
+    """
+    Apply scenario-dependent categorical restrictions.
+
+    If two or more dense event features coexist in the same
+    composition, multiple-event variants are limited to at most
+    two events per feature.
+
+    A dense event feature used alone may still use the complete
+    categorical catalogue defined in categorical_params.json.
+    """
+
+    active_dense_features = [
+        feature
+        for feature in active_features
+        if feature in DENSE_EVENT_FEATURES
+    ]
+
+    if len(active_dense_features) < 2:
+        return list(variants)
+
+    if feature_name not in DENSE_EVENT_FEATURES:
+        return list(variants)
+
+    count_key = DENSE_EVENT_COUNT_KEYS[
+        feature_name
+    ]
+
+    filtered = []
+
+    for variant in variants:
+        params = variant.get(
+            "params",
+            {},
+        )
+
+        mode = params.get(
+            "mode"
+        )
+
+        event_count = params.get(
+            count_key
+        )
+
+        if (
+            mode == "multiple"
+            and event_count is not None
+            and int(event_count) > 2
+        ):
+            continue
+
+        filtered.append(
+            variant
+        )
+
+    return filtered
+
+# ============================================================================
 # SCENARIO CATEGORICAL EXPANSION
 # ============================================================================
 
@@ -810,10 +1069,18 @@ def count_scenario_categorical_variants(
                 f"feature: {feature_name}"
             )
 
+        variants = (
+            filter_feature_variants_for_scenario(
+                feature_name=feature_name,
+                variants=feature_variants[
+                    feature_name
+                ],
+                active_features=features,
+            )
+        )
+
         total *= len(
-            feature_variants[
-                feature_name
-            ]
+            variants
         )
 
     return total
@@ -901,6 +1168,8 @@ def iter_materialized_scenarios(
     categorical_mode: str = "sampled",
     seed: int = 42,
     variants_per_type: int = 1,
+    length_category=None,
+    length=None,
 ):
     """
     Lazily expand type-level scenarios into categorical recipes.
@@ -960,7 +1229,10 @@ def iter_materialized_scenarios(
 
     if type_scenarios is None:
         type_scenarios = (
-            enumerate_type_scenarios()
+            enumerate_type_scenarios(
+                length_category=length_category,
+                length=length,
+            )
         )
 
     feature_variants = (
@@ -1011,9 +1283,20 @@ def iter_materialized_scenarios(
                 )
 
             variants = (
-                feature_variants[
-                    feature_name
-                ]
+                filter_feature_variants_for_scenario(
+                    feature_name=feature_name,
+                    variants=feature_variants[
+                        feature_name
+                    ],
+                    active_features=active_features,
+                )
+            )
+
+            variants = filter_feature_variants_for_length(
+                feature_name,
+                variants,
+                length_category=length_category,
+                length=length,
             )
 
             if not variants:
@@ -1252,7 +1535,28 @@ def _normalize_feature_override_for_generation(
             None,
         )
 
-        if shape_strategy is not None:
+        if shape_strategy == "mixed":
+            valid_shapes = [
+                "rectangular",
+                "gaussian",
+                "triangular",
+                "ramp",
+                "decay",
+            ]
+
+            count = int(
+                normalized.get(
+                    "num_anomalies",
+                    1,
+                )
+            )
+
+            normalized["anomaly_shapes"] = [
+                random.choice(valid_shapes)
+                for _ in range(count)
+            ]
+
+        elif shape_strategy is not None:
             normalized[
                 "anomaly_shapes"
             ] = shape_strategy

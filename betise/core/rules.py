@@ -620,8 +620,8 @@ FEATURE_RULES: Dict[str, Dict[str, Any]] = {
 
 MAX_OVERLAY_SUBTYPES_PER_FAMILY = {
     "trend": 1,
-    "structural_break": 1,
-    "anomaly": 1,
+    "structural_break": 3,
+    "anomaly": 3,
 }
 
 

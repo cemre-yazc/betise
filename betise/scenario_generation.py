@@ -25,7 +25,7 @@ from typing import Any, Dict, Iterator, Optional
 import numpy as np
 import pandas as pd
 
-from betise.config import load_config
+from betise.config import load_params_config
 from betise.full_dataset_generation import (
     generate_full_series,
 )
@@ -93,6 +93,8 @@ def iter_generated_series(
     variants_per_type: int = 1,
     series_per_recipe: int = 1,
     length_range=(300, 500),
+    length_category=None,
+    exact_length=None,
     seed: int = 42,
     max_recipes: Optional[int] = None,
 ) -> Iterator[
@@ -174,11 +176,7 @@ def iter_generated_series(
     # Numerical parameter configuration
     # ------------------------------------------------------------
 
-    cfg = load_config()
-
-    params_cfg = cfg[
-        "params"
-    ]
+    params_cfg = load_params_config()
 
     # full_dataset_generation only needs
     # feature_defaults from full_cfg here.
@@ -194,6 +192,8 @@ def iter_generated_series(
         enumerate_type_scenarios(
             min_size=min_size,
             max_size=max_size,
+            length_category=length_category,
+            length=exact_length,
         )
     )
 
@@ -203,10 +203,12 @@ def iter_generated_series(
 
     materialized_iterator = (
         iter_materialized_scenarios(
-        type_scenarios=type_scenarios,
-        categorical_mode=categorical_mode,
-        variants_per_type=variants_per_type,
-        seed=seed,
+            type_scenarios=type_scenarios,
+            categorical_mode=categorical_mode,
+            variants_per_type=variants_per_type,
+            seed=seed,
+            length_category=length_category,
+            length=exact_length,
         )
     )
 
@@ -335,6 +337,8 @@ def iter_requested_series(
     categorical_mode: str = "sampled",
     variants_per_type: int = 1,
     length_range=(300, 500),
+    length_category=None,
+    exact_length=None,
     seed: int = 42,
 ) -> Iterator[
     tuple[
@@ -400,11 +404,8 @@ def iter_requested_series(
     # Numerical parameters
     # ------------------------------------------------------------
 
-    cfg = load_config()
+    params_cfg = load_params_config()
 
-    params_cfg = cfg[
-        "params"
-    ]
 
     full_cfg = {
         "feature_defaults": {}
@@ -418,6 +419,8 @@ def iter_requested_series(
         build_type_scenario(
             base_components=base_components,
             feature_components=feature_components,
+            length_category=length_category,
+            length=exact_length,
         )
     )
 
@@ -449,6 +452,8 @@ def iter_requested_series(
             categorical_mode=categorical_mode,
             seed=seed,
             variants_per_type=effective_variants,
+            length_category=length_category,
+            length=exact_length,
         )
     )
 

@@ -368,15 +368,16 @@ def test_variants_per_type_is_forwarded_to_materializer(
         *,
         min_size,
         max_size,
+        **kwargs,
     ):
         return []
 
     def fake_iter_materialized_scenarios(
-        *,
         type_scenarios,
         categorical_mode,
-        seed,
         variants_per_type,
+        seed,
+        **kwargs,
     ):
         captured[
             "variants_per_type"

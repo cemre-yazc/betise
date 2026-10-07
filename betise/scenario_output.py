@@ -200,6 +200,8 @@ def generate_dataset_to_parquet(
     variants_per_type: int = 1,
     series_per_recipe: int = 1,
     length_range=(300, 500),
+    length_category=None,
+    exact_length=None,
     seed: int = 42,
     shard_size: int = 100,
     max_recipes: Optional[int] = None,
@@ -301,6 +303,8 @@ def generate_dataset_to_parquet(
         variants_per_type=variants_per_type,
         series_per_recipe=series_per_recipe,
         length_range=length_range,
+        length_category=length_category,
+        exact_length=exact_length,
         seed=seed,
         max_recipes=max_recipes,
     )
@@ -511,6 +515,8 @@ def generate_requested_dataset_to_parquet(
     categorical_mode: str = "sampled",
     variants_per_type: int = 1,
     length_range=(300, 500),
+    length_category=None,
+    exact_length=None,
     seed: int = 42,
     shard_size: int = 100,
 ) -> Dict[str, Any]:
@@ -549,6 +555,8 @@ def generate_requested_dataset_to_parquet(
         categorical_mode=categorical_mode,
         variants_per_type=variants_per_type,
         length_range=length_range,
+        length_category=length_category,
+        exact_length=exact_length,
         seed=seed,
     )
 

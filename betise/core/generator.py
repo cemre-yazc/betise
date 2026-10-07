@@ -1177,7 +1177,7 @@ class TimeSeriesGenerator:
 
     #ANOMALIES    
 
-    def generate_point_anomaly(self, df, location=None, scale_factor=1, is_spike=True, is_loc = None):
+    def generate_point_anomaly(self, df, location=None, scale_factor=1, is_spike=True, is_loc = True):
         series = df['data'].copy()
         n = len(series)
         num_anomalies = 1
@@ -1223,7 +1223,7 @@ class TimeSeriesGenerator:
 
         return df, info
 
-    def generate_point_anomalies(self, df, scale_factor=1,is_loc=None):
+    def generate_point_anomalies(self, df, scale_factor=1,is_loc=True):
         series = df['data'].copy()
         n = len(series)
 
@@ -1283,7 +1283,7 @@ class TimeSeriesGenerator:
         edge_margin=0.05,
         min_distance=0.10,
         max_attempts=1000,
-        is_loc = None,
+        is_loc = True,
     ):
         series = df["data"].copy()
         original_series = series.copy()
@@ -1809,7 +1809,7 @@ class TimeSeriesGenerator:
         location=None,
         anomaly_strength=1,
         max_attempts=10,
-        is_loc=None,
+        is_loc=True,
         scale_factor=1
     ):
         series_original = df["data"].copy()
@@ -3122,7 +3122,7 @@ class TimeSeriesGenerator:
         innovations=None
     ):
         """
-        Pure multiplicative stochastic SARMA process.
+        Multiplicative stochastic SARMA process.
 
         Model
         -----
@@ -3332,7 +3332,7 @@ class TimeSeriesGenerator:
 
         if arma_process is None:
             raise RuntimeError(
-                "Could not generate a valid pure SARMA process."
+                "Could not generate a valid SARMA process."
             )
 
         # =====================================================
@@ -3444,7 +3444,7 @@ class TimeSeriesGenerator:
         innovations=None,
     ):
         """
-        Pure multiplicative stochastic SARIMA process.
+        Mltiplicative stochastic SARIMA process.
 
         Model
         -----
@@ -3738,7 +3738,7 @@ class TimeSeriesGenerator:
 
 
         # =====================================================
-        # PURE STOCHASTIC SARMA
+        # STOCHASTIC SARMA
         # =====================================================
 
         elif kind == "sarma":
@@ -3748,7 +3748,7 @@ class TimeSeriesGenerator:
             )
 
         # =====================================================
-        # PURE STOCHASTIC SARIMA
+        # STOCHASTIC SARIMA
         # =====================================================
 
         elif kind == "sarima":
@@ -3777,8 +3777,8 @@ class TimeSeriesGenerator:
 
     #STRUCTURAL BREAKS
     
-    def generate_mean_shift(self, df, num_breaks=1, scale_factor=1, signs=None, location=None, 
-                            noise_std=None, seasonal_period=None, slope=None, intercept=None, is_loc=None):
+    def generate_mean_shift(self, df, num_breaks=1, scale_factor=1, is_loc=True, signs=None, location=None, 
+                            noise_std=None, seasonal_period=None, slope=None, intercept=None):
         series = df['data'].copy()
         n = len(series)
         noise_std = noise_std if noise_std is not None else np.random.uniform(0.01, 0.05)
@@ -3883,12 +3883,12 @@ class TimeSeriesGenerator:
         df,
         num_breaks=1,
         scale_factor=1,
+        is_loc=True,
         signs=None,
         location=None,
         seasonal_period=None,
         slope=None,
         intercept=None,
-        is_loc=None
     ):
         series = df["data"].copy()
         n = len(series)
@@ -4086,12 +4086,12 @@ class TimeSeriesGenerator:
         location="middle",
         num_breaks=1,
         scale_factor=1,
+        is_loc=True,
         change_types=None,
         slope=None,
         intercept=None,
         seasonal_period=None,
-        noise_std=None,
-        is_loc=None
+        noise_std=None
     ):
         series = df["data"].copy()
         n = len(series)

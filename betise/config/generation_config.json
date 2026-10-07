@@ -9,7 +9,7 @@
 
   "series_per_recipe": 2,
 
-  "length_range": [300, 350],
+  "length_category": "medium",
 
   "seed": 42,
 
