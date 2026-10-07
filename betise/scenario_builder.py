@@ -305,15 +305,15 @@ def _uses_short_policy(
     length_category=None,
     length=None,
 ) -> bool:
-    """
-    Return True when short-series generation rules should apply.
-    """
+    """Return whether short-series generation rules should apply."""
+
+    if length_category is not None and length is not None:
+        raise ValueError(
+            "Use either 'length_category' or 'length', not both."
+        )
 
     if length_category is not None:
-        return (
-            str(length_category).lower()
-            == "short"
-        )
+        return str(length_category).lower() == "short"
 
     if length is not None:
         return 50 <= int(length) <= 100
@@ -431,30 +431,25 @@ def build_type_scenario(
 def count_type_scenarios(
     min_size: int = 1,
     max_size: int = 5,
+    length_category=None,
+    length=None,
 ) -> Dict[int, int]:
-    """
-    Return the number of valid scenarios for each size.
-    """
+    """Count valid type scenarios under the selected length policy."""
 
     scenarios = enumerate_type_scenarios(
         min_size=min_size,
         max_size=max_size,
+        length_category=length_category,
+        length=length,
     )
 
     counts = {
         size: 0
-        for size in range(
-            min_size,
-            max_size + 1,
-        )
+        for size in range(min_size, max_size + 1)
     }
 
     for scenario in scenarios:
-        size = scenario[
-            "combination_size"
-        ]
-
-        counts[size] += 1
+        counts[scenario["combination_size"]] += 1
 
     return counts
 
@@ -847,13 +842,6 @@ def is_scenario_allowed_for_length(
     excessive event density.
     """
 
-    if length_category is None:
-        return True
-
-    length_category = (
-        str(length_category).lower()
-    )
-
     if not _uses_short_policy(
         length_category=length_category,
         length=length,
@@ -917,44 +905,21 @@ def filter_feature_variants_for_length(
     length_category=None,
     length=None,
 ):
-    """
-    Apply length-specific categorical restrictions.
-
-    For short series, dense event features are restricted
-    to single-event variants only.
-
-    Medium and long series keep the full categorical
-    variant catalogue.
-    """
-
-    if length_category is None:
-        return list(variants)
-
-    length_category = (
-        str(length_category).lower()
-    )
+    """Restrict dense-event features to single variants for short series."""
 
     if not _uses_short_policy(
         length_category=length_category,
         length=length,
     ):
-        return variants
+        return list(variants)
 
-    if (
-        feature_name
-        not in SHORT_SINGLE_ONLY_FEATURES
-    ):
+    if feature_name not in SHORT_SINGLE_ONLY_FEATURES:
         return list(variants)
 
     return [
         variant
         for variant in variants
-        if variant.get(
-            "params",
-            {},
-        ).get(
-            "mode"
-        ) != "multiple"
+        if variant.get("params", {}).get("mode") != "multiple"
     ]
 
 def filter_feature_variants_for_scenario(
@@ -1018,6 +983,28 @@ def filter_feature_variants_for_scenario(
 
     return filtered
 
+def get_scenario_feature_variants(
+    feature_name,
+    variants,
+    active_features,
+    length_category=None,
+    length=None,
+):
+    """Apply the shared dense-event and length policies."""
+
+    variants = filter_feature_variants_for_scenario(
+        feature_name=feature_name,
+        variants=variants,
+        active_features=active_features,
+    )
+
+    return filter_feature_variants_for_length(
+        feature_name=feature_name,
+        variants=variants,
+        length_category=length_category,
+        length=length,
+    )
+
 # ============================================================================
 # SCENARIO CATEGORICAL EXPANSION
 # ============================================================================
@@ -1025,63 +1012,40 @@ def filter_feature_variants_for_scenario(
 def count_scenario_categorical_variants(
     scenario: Dict[str, Any],
     feature_variants=None,
+    length_category=None,
+    length=None,
 ) -> int:
-    """
-    Count how many categorical realizations belong to one type-level scenario.
+    """Count categorical recipes under the selected generation policy."""
 
-    Examples
-    --------
-    ar
-        -> 1
-
-    ar + linear_trend
-        -> 2
-
-    ar + quadratic_trend
-        -> 6
-
-    ar + linear_trend + mean_shift
-        -> 2 * 9 = 18
-    """
+    if not is_scenario_allowed_for_length(
+        scenario,
+        length_category=length_category,
+        length=length,
+    ):
+        return 0
 
     if feature_variants is None:
-        feature_variants = (
-            build_feature_variants()
-        )
+        feature_variants = build_feature_variants()
 
-    features = scenario.get(
-        "feature_components",
-        [],
-    )
-
-    # Base-only scenario:
-    # no categorical overlay variation.
-    if not features:
-        return 1
-
+    active_features = scenario.get("feature_components", [])
     total = 1
 
-    for feature_name in features:
-
+    for feature_name in active_features:
         if feature_name not in feature_variants:
             raise KeyError(
                 "No categorical definition found for "
                 f"feature: {feature_name}"
             )
 
-        variants = (
-            filter_feature_variants_for_scenario(
-                feature_name=feature_name,
-                variants=feature_variants[
-                    feature_name
-                ],
-                active_features=features,
-            )
+        variants = get_scenario_feature_variants(
+            feature_name=feature_name,
+            variants=feature_variants[feature_name],
+            active_features=active_features,
+            length_category=length_category,
+            length=length,
         )
 
-        total *= len(
-            variants
-        )
+        total *= len(variants)
 
     return total
 
@@ -1247,6 +1211,13 @@ def iter_materialized_scenarios(
 
     for scenario in type_scenarios:
 
+        if not is_scenario_allowed_for_length(
+            scenario,
+            length_category=length_category,
+            length=length,
+        ):
+            continue
+
         active_features = scenario.get(
             "feature_components",
             [],
@@ -1281,20 +1252,10 @@ def iter_materialized_scenarios(
                     "No categorical definition found "
                     f"for feature: {feature_name}"
                 )
-
-            variants = (
-                filter_feature_variants_for_scenario(
-                    feature_name=feature_name,
-                    variants=feature_variants[
-                        feature_name
-                    ],
-                    active_features=active_features,
-                )
-            )
-
-            variants = filter_feature_variants_for_length(
-                feature_name,
-                variants,
+            variants = get_scenario_feature_variants(
+                feature_name=feature_name,
+                variants=feature_variants[feature_name],
+                active_features=active_features,
                 length_category=length_category,
                 length=length,
             )
@@ -1406,53 +1367,18 @@ def iter_materialized_scenarios(
 def count_materialized_scenarios(
     min_size: int = 1,
     max_size: int = 5,
+    length_category=None,
+    length=None,
 ) -> Dict[int, int]:
-    """
-    Count categorical scenario realizations without materializing them.
+    """Count all categorical recipes without materializing them."""
 
-    This uses multiplication of feature variant counts instead of creating
-    the full Cartesian scenario space.
-    """
-
-    type_scenarios = (
-        enumerate_type_scenarios(
-            min_size=min_size,
-            max_size=max_size,
-        )
+    return count_categorical_recipes(
+        min_size=min_size,
+        max_size=max_size,
+        categorical_mode="all",
+        length_category=length_category,
+        length=length,
     )
-
-    feature_variants = (
-        build_feature_variants()
-    )
-
-    counts = {
-        size: 0
-        for size in range(
-            min_size,
-            max_size + 1,
-        )
-    }
-
-    for scenario in type_scenarios:
-
-        size = scenario[
-            "combination_size"
-        ]
-
-        variant_count = (
-            count_scenario_categorical_variants(
-                scenario,
-                feature_variants=(
-                    feature_variants
-                ),
-            )
-        )
-
-        counts[
-            size
-        ] += variant_count
-
-    return counts
 
 # ============================================================================
 # GENERATION ADAPTER
@@ -1686,30 +1612,16 @@ def count_categorical_recipes(
     max_size: int = 5,
     categorical_mode: str = "sampled",
     variants_per_type: int = 1,
+    length_category=None,
+    length=None,
 ) -> Dict[int, int]:
-    """
-    Count how many categorical recipes would be produced.
+    """Count recipes using the same policies as categorical expansion."""
 
-    Type-level scenarios are always fully enumerated.
+    categorical_mode = categorical_mode.lower()
 
-    categorical_mode="all":
-        Count the full categorical Cartesian product.
-
-    categorical_mode="sampled":
-        Count up to variants_per_type recipes per type scenario.
-    """
-
-    categorical_mode = (
-        categorical_mode.lower()
-    )
-
-    if categorical_mode not in {
-        "all",
-        "sampled",
-    }:
+    if categorical_mode not in {"all", "sampled"}:
         raise ValueError(
-            "categorical_mode must be "
-            "'all' or 'sampled'."
+            "categorical_mode must be 'all' or 'sampled'."
         )
 
     if variants_per_type <= 0:
@@ -1717,66 +1629,36 @@ def count_categorical_recipes(
             "variants_per_type must be positive."
         )
 
-    scenarios = (
-        enumerate_type_scenarios(
-            min_size=min_size,
-            max_size=max_size,
-        )
+    scenarios = enumerate_type_scenarios(
+        min_size=min_size,
+        max_size=max_size,
+        length_category=length_category,
+        length=length,
     )
 
-    feature_variants = (
-        build_feature_variants()
-    )
+    feature_variants = build_feature_variants()
 
     counts = {
         size: 0
-        for size in range(
-            min_size,
-            max_size + 1,
-        )
+        for size in range(min_size, max_size + 1)
     }
 
     for scenario in scenarios:
+        total_possible = count_scenario_categorical_variants(
+            scenario,
+            feature_variants=feature_variants,
+            length_category=length_category,
+            length=length,
+        )
 
-        size = scenario[
-            "combination_size"
-        ]
-
-        active_features = scenario[
-            "feature_components"
-        ]
-
-        # Base-only scenario has exactly one categorical recipe.
-        if not active_features:
-
-            recipe_count = 1
-
+        if categorical_mode == "all":
+            recipe_count = total_possible
         else:
-
-            total_possible = (
-                count_scenario_categorical_variants(
-                    scenario,
-                    feature_variants=(
-                        feature_variants
-                    ),
-                )
+            recipe_count = min(
+                variants_per_type,
+                total_possible,
             )
 
-            if categorical_mode == "all":
-
-                recipe_count = (
-                    total_possible
-                )
-
-            else:
-
-                recipe_count = min(
-                    variants_per_type,
-                    total_possible,
-                )
-
-        counts[
-            size
-        ] += recipe_count
+        counts[scenario["combination_size"]] += recipe_count
 
     return counts

@@ -303,39 +303,44 @@ def validate_generation_config(config: Dict[str, Any],
 # GENERATION ESTIMATE
 # ============================================================================
 
-def build_generation_estimate(config: Dict[str, Any],
+def build_generation_estimate(
+    config: Dict[str, Any],
 ) -> Dict[str, Any]:
+    """Estimate recipe and series counts under the selected length policy."""
 
-    """
-    Estimate number of recipes and actual series before generation.
-    """
+    length_settings = resolve_length_settings(config)
 
-    recipe_counts = (
-        count_categorical_recipes(min_size=int(config["min_size"]),
-            max_size=int(config["max_size"]),
-            categorical_mode=str(config["categorical_mode"]),
-            variants_per_type=int(config["variants_per_type"]),
-        )
+    recipe_counts = count_categorical_recipes(
+        min_size=int(config["min_size"]),
+        max_size=int(config["max_size"]),
+        categorical_mode=str(config["categorical_mode"]),
+        variants_per_type=int(config["variants_per_type"]),
+        length_category=length_settings["length_category"],
+        length=length_settings["length"],
     )
 
-
     total_recipes = sum(recipe_counts.values())
-
     max_recipes = config.get("max_recipes")
 
     if max_recipes is not None:
-        effective_recipes = min(total_recipes,int(max_recipes),)
-
+        effective_recipes = min(
+            total_recipes,
+            int(max_recipes),
+        )
     else:
-        effective_recipes = (total_recipes)
+        effective_recipes = total_recipes
 
-    total_series = (effective_recipes * int(config["series_per_recipe"]))
+    total_series = (
+        effective_recipes
+        * int(config["series_per_recipe"])
+    )
 
-    return {"recipe_counts": (recipe_counts),
-            "total_available_recipes": (total_recipes),
-            "effective_recipes": (effective_recipes),
-            "estimated_series": (total_series),}
-
+    return {
+        "recipe_counts": recipe_counts,
+        "total_available_recipes": total_recipes,
+        "effective_recipes": effective_recipes,
+        "estimated_series": total_series,
+    }
 
 # ============================================================================
 # RUNNER

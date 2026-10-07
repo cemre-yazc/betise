@@ -72,6 +72,10 @@ from betise.dataset_generation import (
 )
 from betise.utils.helpers import add_indices_column
 
+from betise.scenario_builder import (
+    get_scenario_feature_variants,
+    is_scenario_allowed_for_length,
+)
 
 EXTERNAL_FOURIER_BASES = {
     "single_seasonality",
@@ -897,6 +901,48 @@ def normalize_variant_params(
 
     return params
 
+def _composition_variant_catalogue(
+    composition,
+    feature_variants,
+    length_category=None,
+    length=None,
+):
+    """Resolve composition variants using the shared generation policies."""
+
+    features = composition.get("features", [])
+    scenario = {"feature_components": features}
+
+    if not is_scenario_allowed_for_length(
+        scenario,
+        length_category=length_category,
+        length=length,
+    ):
+        return None
+
+    catalogue = {}
+
+    for feature in features:
+        # Features absent from a partial catalogue use generator defaults.
+        if not feature_variants.get(feature):
+            continue
+
+        variants = get_scenario_feature_variants(
+            feature_name=feature,
+            variants=feature_variants[feature],
+            active_features=features,
+            length_category=length_category,
+            length=length,
+        )
+
+        if not variants:
+            raise ValueError(
+                f"Feature has zero categorical variants: {feature}"
+            )
+
+        catalogue[feature] = variants
+
+    return catalogue
+
 
 def expand_composition_variants(
     composition: Mapping[str, Any],
@@ -906,56 +952,32 @@ def expand_composition_variants(
     rng: Optional[random.Random] = None,
     cursors: Optional[Dict[str, int]] = None,
     max_cases: Optional[int] = None,
+    length_category=None,
+    length=None,
 ) -> Iterator[Tuple[Dict[str, Any], Dict[str, str]]]:
-    """Expand one template composition into concrete, ready-to-generate ones.
-
-    Yields ``(composition, selected_variant_ids)`` pairs where the composition
-    carries a fully populated ``feature_overrides`` mapping, exactly what
-    :func:`generate_full_series` consumes.
-
-    Parameters
-    ----------
-    composition
-        A template composition from ``full_dataset.json["compositions"]``.
-    feature_variants
-        ``full_dataset.json["feature_variants"]``. Features missing from this
-        mapping are skipped, so a partially populated catalogue is fine.
-    mode
-        ``"product"`` walks the cartesian product of every active feature's
-        variants — the semantics declared by ``_meta.variant_expansion``.
-        ``"cycle"`` yields a single composition, taking one variant per feature
-        round-robin via ``cursors``; successive calls advance through the
-        variant lists, which keeps a long run evenly spread without expanding
-        combinatorially.
-    rng
-        Used only where a variant delegates a choice to chance (for example
-        ``shape_strategy="mixed"``). Defaults to a fresh ``random.Random()``.
-    cursors
-        Per-feature round-robin state for ``mode="cycle"``; pass the same dict
-        across calls. Ignored by ``mode="product"``.
-    max_cases
-        Stop after this many yielded cases. ``None`` means no limit.
-
-    Notes
-    -----
-    This is a lazy generator on purpose: expanding the whole catalogue in
-    ``"product"`` mode produces ~1.9M cases, far too many to materialise.
-    """
+    """Expand a template under the shared dense-event and length policies."""
 
     if mode not in {"product", "cycle"}:
         raise ValueError(
-            f"Unknown mode: {mode!r}. Valid modes are 'product' and 'cycle'."
+            f"Unknown mode: {mode!r}. "
+            "Valid modes are 'product' and 'cycle'."
         )
 
+    catalogue = _composition_variant_catalogue(
+        composition,
+        feature_variants,
+        length_category=length_category,
+        length=length,
+    )
+
+    # The requested type is excluded by the length policy.
+    if catalogue is None:
+        return
+
     rng = rng if rng is not None else random.Random()
+    features = list(catalogue)
 
-    features = [
-        feature
-        for feature in composition.get("features", [])
-        if feature_variants.get(feature)
-    ]
-
-    # No feature carries variants -> the template is already concrete.
+    # No categorical feature variation.
     if not features:
         yield deepcopy(dict(composition)), {}
         return
@@ -965,23 +987,38 @@ def expand_composition_variants(
         chosen = []
 
         for feature in features:
-            variants = feature_variants[feature]
+            variants = catalogue[feature]
             cursor = cursors.get(feature, 0)
-            cursors[feature] = cursor + 1
-            chosen.append(variants[cursor % len(variants)])
 
-        yield _materialize(composition, features, chosen, rng)
+            cursors[feature] = cursor + 1
+            chosen.append(
+                variants[cursor % len(variants)]
+            )
+
+        yield _materialize(
+            composition,
+            features,
+            chosen,
+            rng,
+        )
         return
 
     emitted = 0
 
-    for chosen in itertools.product(*(feature_variants[f] for f in features)):
+    for chosen in itertools.product(
+        *(catalogue[feature] for feature in features)
+    ):
         if max_cases is not None and emitted >= max_cases:
             return
 
-        yield _materialize(composition, features, chosen, rng)
-        emitted += 1
+        yield _materialize(
+            composition,
+            features,
+            chosen,
+            rng,
+        )
 
+        emitted += 1
 
 def _materialize(
     composition: Mapping[str, Any],
@@ -1022,16 +1059,26 @@ def _materialize(
 def count_composition_variants(
     composition: Mapping[str, Any],
     feature_variants: Mapping[str, Sequence[Mapping[str, Any]]],
+    *,
+    length_category=None,
+    length=None,
 ) -> int:
-    """Number of cases ``expand_composition_variants(..., mode="product")`` yields."""
+    """Count the cases yielded by product expansion under the same policy."""
+
+    catalogue = _composition_variant_catalogue(
+        composition,
+        feature_variants,
+        length_category=length_category,
+        length=length,
+    )
+
+    if catalogue is None:
+        return 0
 
     total = 1
 
-    for feature in composition.get("features", []):
-        variants = feature_variants.get(feature)
-
-        if variants:
-            total *= len(variants)
+    for variants in catalogue.values():
+        total *= len(variants)
 
     return total
 
