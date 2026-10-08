@@ -370,10 +370,10 @@ def test_each_series_is_complete(
     combined = pd.concat(
         [
             pd.read_parquet(
-                shard_file
+                shard_file,
+                columns=["series_id"],
             )
-            for shard_file
-            in shard_files
+            for shard_file in shard_files
         ],
         ignore_index=True,
     )

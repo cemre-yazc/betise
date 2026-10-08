@@ -26,8 +26,9 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from betise.scenario_builder import (count_categorical_recipes,)
+from betise.scenario_builder import (count_categorical_recipes)
 from betise.scenario_output import (generate_dataset_to_parquet,generate_requested_dataset_to_parquet,)
+
 
 
 LENGTH_PRESETS = {
@@ -359,6 +360,7 @@ def run_generation(config_path=None,
 
     if mode == "requested":
         validate_requested_generation_config(config)
+        length_settings = resolve_length_settings(config)
 
         length_settings = (
             resolve_length_settings(
@@ -409,21 +411,18 @@ def run_generation(config_path=None,
         print("=" * 72)
 
 
-        summary = generate_dataset_to_parquet(
+        summary = generate_requested_dataset_to_parquet(
             output_dir=config["output_dir"],
-            min_size=int(config["min_size"]),
-            max_size=int(config["max_size"]),
+            base_components=config["base_components"],
+            feature_components=config["features"],
+            num_series=int(config["num_series"]),
             categorical_mode=str(config["categorical_mode"]),
             variants_per_type=int(config["variants_per_type"]),
-            series_per_recipe=int(config["series_per_recipe"]),
-
             length_range=length_range,
             length_category=length_settings["length_category"],
             exact_length=length_settings["length"],
-
             seed=int(config["seed"]),
             shard_size=int(config["shard_size"]),
-            max_recipes=config.get("max_recipes"),
         )
 
         print()
@@ -513,20 +512,19 @@ def run_generation(config_path=None,
     # Actual generation
     # ------------------------------------------------------------
 
-    summary = generate_requested_dataset_to_parquet(
+    summary = generate_dataset_to_parquet(
         output_dir=config["output_dir"],
-        base_components=config["base_components"],
-        feature_components=config["features"],
-        num_series=int(config["num_series"]),
+        min_size=int(config["min_size"]),
+        max_size=int(config["max_size"]),
         categorical_mode=str(config["categorical_mode"]),
         variants_per_type=int(config["variants_per_type"]),
-
+        series_per_recipe=int(config["series_per_recipe"]),
         length_range=length_range,
         length_category=length_settings["length_category"],
         exact_length=length_settings["length"],
-
         seed=int(config["seed"]),
         shard_size=int(config["shard_size"]),
+        max_recipes=config.get("max_recipes"),
     )
 
 
@@ -546,10 +544,11 @@ def run_generation(config_path=None,
 # CLI
 # ============================================================================
 
-
-
 if __name__ == "__main__":
+    custom_config = sys.argv[1] if len(sys.argv) > 1 else None
 
-    custom_config = (sys.argv[1] if len(sys.argv) > 1 else None)
-
-    run_generation(custom_config)
+    try:
+        run_generation(custom_config)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(1)

@@ -1434,51 +1434,80 @@ class TimeSeriesGenerator:
 
             return True
 
-        selected_intervals = []
-        records = []
-
-        for shape in anomaly_shapes:
+        def find_interval(shape, selected_intervals):
             config = shape_configs[shape]
 
-            min_len = max(3, int(config["length_range"][0] * n))
-            max_len = max(min_len + 1, int(config["length_range"][1] * n))
-
-            found_interval = False
+            min_len = max(
+                3,
+                int(config["length_range"][0] * n)
+            )
+            max_len = max(
+                min_len + 1,
+                int(config["length_range"][1] * n)
+            )
 
             for _ in range(max_attempts):
-                length = np.random.randint(min_len, max_len + 1)
+                length = np.random.randint(
+                    min_len,
+                    max_len + 1
+                )
 
-                start_low, start_high = get_start_bounds(location_used, length)
+                start_low, start_high = get_start_bounds(
+                    location_used,
+                    length
+                )
 
-                if start_high <= start_low:
+                if start_high < start_low:
                     continue
 
-                start = np.random.randint(start_low, start_high + 1)
+                start = np.random.randint(
+                    start_low,
+                    start_high + 1
+                )
                 end = start + length
 
-                # First check overlap / distance condition
-                if not interval_is_valid(start, end, selected_intervals):
+                if not interval_is_valid(
+                    start,
+                    end,
+                    selected_intervals
+                ):
                     continue
 
-                # Reject visually awkward boundaries.
-                # This prevents the anomaly from starting or ending exactly at an extreme jump/spike.
                 boundary_window = max(5, int(0.05 * n))
                 boundary_threshold = 2.5
 
                 left = max(0, start - boundary_window)
                 right = min(n, end + boundary_window)
 
-                local_region = original_series.iloc[left:right].to_numpy()
+                local_region = original_series.iloc[
+                    left:right
+                ].to_numpy()
+
                 local_std = np.std(local_region)
 
                 if local_std < 1e-8:
-                    local_std = np.std(original_series.to_numpy())
+                    local_std = np.std(
+                        original_series.to_numpy()
+                    )
 
                 if local_std < 1e-8:
                     local_std = 1.0
 
-                start_jump = abs(original_series.iloc[start] - original_series.iloc[start - 1]) if start > 0 else 0
-                end_jump = abs(original_series.iloc[end] - original_series.iloc[end - 1]) if end < n else 0
+                start_jump = (
+                    abs(
+                        original_series.iloc[start]
+                        - original_series.iloc[start - 1]
+                    )
+                    if start > 0 else 0
+                )
+
+                end_jump = (
+                    abs(
+                        original_series.iloc[end]
+                        - original_series.iloc[end - 1]
+                    )
+                    if end < n else 0
+                )
 
                 if start_jump > boundary_threshold * local_std:
                     continue
@@ -1486,16 +1515,164 @@ class TimeSeriesGenerator:
                 if end_jump > boundary_threshold * local_std:
                     continue
 
-                selected_intervals.append((start, end))
-                found_interval = True
-                break
+                return start, end, length
 
-            if not found_interval:
-                raise ValueError(
-                    f"Could not place anomaly with shape '{shape}'. "
-                    f"Try reducing num_anomalies, min_distance, or anomaly length ranges."
+            return None
+
+        placement_plan = None
+        max_layout_attempts = 50
+
+        # Retry the complete layout if any anomaly cannot be placed.
+        for _ in range(max_layout_attempts):
+            selected_intervals = []
+            candidate_plan = []
+
+            for shape in anomaly_shapes:
+                interval = find_interval(
+                    shape,
+                    selected_intervals
                 )
 
+                if interval is None:
+                    break
+
+                start, end, length = interval
+
+                selected_intervals.append(
+                    (start, end)
+                )
+                candidate_plan.append(
+                    (shape, start, end, length)
+                )
+
+            if len(candidate_plan) == len(anomaly_shapes):
+                placement_plan = candidate_plan
+                break
+
+        def find_complete_layout():
+            shapes = tuple(dict.fromkeys(anomaly_shapes))
+            target = tuple(anomaly_shapes.count(shape) for shape in shapes)
+            cache = {}
+
+            def earliest_interval(shape, after):
+                key = (shape, after)
+                if key in cache:
+                    return cache[key]
+
+                config = shape_configs[shape]
+                min_len = max(3, int(config["length_range"][0] * n))
+                max_len = max(
+                    min_len + 1,
+                    int(config["length_range"][1] * n),
+                )
+
+                start_low, _ = get_start_bounds(location_used, min_len)
+                first_start = max(start_low, after)
+
+                for end in range(
+                    first_start + min_len,
+                    n - edge_margin_points + 1,
+                ):
+                    for length in range(
+                        min_len,
+                        min(max_len, end - first_start) + 1,
+                    ):
+                        start = end - length
+                        low, high = get_start_bounds(location_used, length)
+
+                        if not low <= start <= high:
+                            continue
+
+                        window = max(5, int(0.05 * n))
+                        region = original_series.iloc[
+                            max(0, start - window):min(n, end + window)
+                        ].to_numpy()
+
+                        local_std = np.std(region)
+                        if local_std < 1e-8:
+                            local_std = np.std(original_series.to_numpy())
+                        if local_std < 1e-8:
+                            local_std = 1.0
+
+                        start_jump = (
+                            abs(
+                                original_series.iloc[start]
+                                - original_series.iloc[start - 1]
+                            )
+                            if start > 0 else 0
+                        )
+                        end_jump = (
+                            abs(
+                                original_series.iloc[end]
+                                - original_series.iloc[end - 1]
+                            )
+                            if end < n else 0
+                        )
+
+                        if (
+                            start_jump > 2.5 * local_std
+                            or end_jump > 2.5 * local_std
+                        ):
+                            continue
+
+                        cache[key] = (shape, start, end, length)
+                        return cache[key]
+
+                cache[key] = None
+                return None
+
+            states = {tuple(0 for _ in shapes): (0, [])}
+
+            for _ in range(num_anomalies):
+                next_states = {}
+
+                for counts, (previous_end, plan) in states.items():
+                    after = (
+                        previous_end + min_distance_points
+                        if plan else 0
+                    )
+
+                    for index, shape in enumerate(shapes):
+                        if counts[index] >= target[index]:
+                            continue
+
+                        interval = earliest_interval(shape, after)
+                        if interval is None:
+                            continue
+
+                        updated = list(counts)
+                        updated[index] += 1
+                        updated = tuple(updated)
+
+                        end = interval[2]
+                        existing = next_states.get(updated)
+
+                        if existing is None or end < existing[0]:
+                            next_states[updated] = (
+                                end,
+                                plan + [interval],
+                            )
+
+                states = next_states
+                if not states:
+                    return None
+
+            return states[target][1]
+        
+        if placement_plan is None:
+            placement_plan = find_complete_layout()
+
+        if placement_plan is None:
+            raise ValueError(
+                "No valid collective-anomaly placement satisfies the "
+                "requested count, length ranges, location, edge margin, "
+                "minimum distance, and boundary constraints."
+            )
+
+        records = []
+
+        for shape, start, end, length in placement_plan:
+            config = shape_configs[shape]
             profile = get_shape_profile(length, shape)
 
             local_start = max(0, start - int(0.10 * n))
@@ -3810,27 +3987,57 @@ class TimeSeriesGenerator:
         # Decide break points
         if num_breaks == 1 and location in ["beginning", "middle", "end"]:
             if location == "beginning":
-                break_points = [np.random.randint(int(0.1 * n), int(0.3 * n))]
+                break_points = [
+                    np.random.randint(int(0.1 * n), int(0.3 * n))
+                ]
             elif location == "middle":
-                break_points = [np.random.randint(int(0.4 * n), int(0.6 * n))]
-            elif location == "end":
-                break_points = [np.random.randint(int(0.7 * n), int(0.9 * n))]
+                break_points = [
+                    np.random.randint(int(0.4 * n), int(0.6 * n))
+                ]
+            else:
+                break_points = [
+                    np.random.randint(int(0.7 * n), int(0.9 * n))
+                ]
         else:
-            candidates = np.arange(int(0.1 * n), int(0.9 * n))
+            lower = max(1, int(0.1 * n))
+            upper = min(n, int(0.9 * n))
+            candidates = np.arange(lower, upper)
             break_points = []
+
             while len(break_points) < num_breaks and len(candidates) > 0:
-                point = np.random.choice(candidates)
+                raw_point = int(np.random.choice(candidates))
+                point = raw_point
+
                 if isinstance(seasonal_period, int):
-                    phase = point % seasonal_period
-                    point -= phase
+                    point -= point % seasonal_period
+
                 elif isinstance(seasonal_period, (list, tuple)):
-                    sp = np.random.choice(seasonal_period)
-                    phase = point % sp
-                    point -= phase
-                if point not in break_points:
-                    break_points.append(point)
-                    candidates = candidates[np.abs(candidates - point) >= min_distance]
+                    period = int(np.random.choice(seasonal_period))
+                    point -= point % period
+
+                # Accept phase alignment only if the result is valid.
+                if (
+                    not lower <= point < upper
+                    or any(
+                        abs(point - previous) < min_distance
+                        for previous in break_points
+                    )
+                ):
+                    point = raw_point
+
+                break_points.append(point)
+
+                candidates = candidates[
+                    np.abs(candidates - point) >= min_distance
+                ]
+
             break_points = sorted(break_points)
+
+            if len(break_points) != num_breaks:
+                raise ValueError(
+                    f"Could not place {num_breaks} mean-shift breaks "
+                    "within the safe range and minimum-distance constraints."
+                )
 
         if signs is None or len(signs) != len(break_points):
             raise ValueError("signs must be a list with the same length as the number of breaks.")
@@ -3840,7 +4047,12 @@ class TimeSeriesGenerator:
         prev_point = 0
         # Apply shifts
         for i, break_point in enumerate(break_points):
-            local_std = np.std(shift_target[prev_point:break_point])
+            segment = shift_target.iloc[prev_point:break_point].to_numpy()
+            if len(segment) == 0:
+                raise ValueError("Mean shift cannot use an empty segment.")
+            local_std = np.std(segment)
+            if not np.isfinite(local_std):
+                raise ValueError("Mean-shift segment has a non-finite standard deviation.")
             magnitude = np.random.uniform(1.5, 3) * local_std
             magnitudes.append(magnitude)
             level_shift = signs[i] * magnitude
