@@ -65,6 +65,29 @@ FEATURE_ORDER = [
 # but canonical rules treat it as a mathematical base-family component.
 VOLATILITY_FEATURES = VOLATILITY_BASE_SERIES
 
+def final_stationarity_label(
+    base_components: List[str],
+    feature_components: List[str],
+    base_stationary: int,
+) -> int:
+    """BeTiSe's final-series stationary label, not a stationarity test.
+
+    A single, overlay-free AR/MA/ARMA/white-noise base is labeled 1.
+    A single, overlay-free ARFIMA base retains its d-dependent generator flag.
+    All other standalone bases, multi-base compositions, and feature overlays
+    are labeled 0 (including volatility and seasonality combinations).
+    """
+    if len(base_components) != 1 or len(feature_components) != 0:
+        return 0
+
+    base = base_components[0]
+    if base in {"ar", "ma", "arma", "white_noise"}:
+        return 1
+    if base == "arfima":
+        return int(bool(base_stationary))
+    return 0
+
+
     
 # ── PyArrow compatibility patch ───────────────────────────────────────────────
 
@@ -1198,9 +1221,21 @@ def generate_dataframe(cfg: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any
         meta["feature_components"] = list(rule_report.feature_components)
         meta["feature_families"] = list(rule_report.feature_families)
 
-        # ── Final stationarity / seasonality flags from df columns ────────────
-        meta["is_stationary"] = int(df["stationary"].iloc[0]) if "stationary" in df.columns else meta.get("is_stationary", 1)
-        meta["is_seasonal"]   = int(df["seasonal"].iloc[0])   if "seasonal"   in df.columns else meta.get("is_seasonal",   0)
+        # ── Final labels: use the same stationarity rule as the full pipeline ──
+        base_stationary = (
+            int(df["stationary"].iloc[0]) if "stationary" in df.columns else 0
+        )
+        final_stationary = final_stationarity_label(
+            base_components=rule_report.base_components,
+            feature_components=rule_report.feature_components,
+            base_stationary=base_stationary,
+        )
+        df["stationary"] = final_stationary
+        meta["is_stationary"] = final_stationary
+        meta["is_seasonal"] = (
+            int(df["seasonal"].iloc[0]) if "seasonal" in df.columns
+            else meta.get("is_seasonal", 0)
+        )
 
         # -----------------------------------------------------------------
         # Runtime validation gates

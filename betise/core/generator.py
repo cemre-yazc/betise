@@ -1116,7 +1116,7 @@ class TimeSeriesGenerator:
         df = pd.DataFrame({
             "time": np.arange(self.length),
             "data": np.asarray(series, dtype=float),
-            "stationary": np.ones(self.length,dtype=int),
+            "stationary": np.zeros(self.length,dtype=int),
             "seasonal": np.zeros(self.length,dtype=int)})
 
         return df, info
@@ -1214,7 +1214,6 @@ class TimeSeriesGenerator:
     
         df.loc[:, 'data'] = series
         df.loc[:, 'stationary'] = 0
-        df.loc[:, 'point_anom_single'] = 1
 
         if is_loc:
             point_anom_label = np.zeros(n, dtype=int)
@@ -1264,7 +1263,6 @@ class TimeSeriesGenerator:
     
         df.loc[:, 'data'] = series
         df.loc[:, 'stationary'] = 0
-        df.loc[:, 'point_anom_multi'] = 1
 
         if is_loc:
             point_anom_label = np.zeros(n, dtype=int)
@@ -1801,7 +1799,6 @@ class TimeSeriesGenerator:
 
         df.loc[:, "data"] = series
         df.loc[:, "stationary"] = 0
-        df.loc[:, "collect_anom"] = 1
 
         if is_loc is True:
             collect_anom_label = np.zeros(
@@ -2248,7 +2245,6 @@ class TimeSeriesGenerator:
 
         df.loc[:, "data"] = series
         df.loc[:, "stationary"] = 0
-        df.loc[:, "context_anom"] = 1
         df.loc[:, "seasonal"] = 1
 
         # --------------------------------------------------
@@ -2284,10 +2280,6 @@ class TimeSeriesGenerator:
         info = {'type' : 'trend', 'subtype': 'deterministic_linear', 'sign': sign, 'slope': slope, 'intercept': intercept}
         df.loc[:,'data'] = series
         df.loc[:,'stationary'] = 0
-        if sign > 0:
-            df.loc[:,'det_lin_up'] = 1
-        else:
-            df.loc[:,'det_lin_down'] = 1
         return df, info
 
     def generate_deterministic_trend_quadratic(self, df, sign=None, a=None, b=None, c=None,noise_std=None, scale_factor=1,asymmetric=False, location="center"):
@@ -2324,7 +2316,6 @@ class TimeSeriesGenerator:
         series += trend + noise
         df.loc[:, 'data'] = series
         df.loc[:, 'stationary'] = 0
-        df.loc[:, 'det_quad'] = 1
         return df, info
 
     def generate_deterministic_trend_cubic(self, df, sign=None, amplitude=10, noise_std=None,scale_factor=1, asymmetric=False, location="center"):
@@ -2366,7 +2357,6 @@ class TimeSeriesGenerator:
         
         df.loc[:, 'data'] = series
         df.loc[:, 'stationary'] = 0
-        df.loc[:, 'det_cubic'] = 1
         return df, info
 
     def generate_deterministic_trend_exponential(self, df, sign=None, a=None, b=None, noise_std=None, scale_factor=1):
@@ -2395,7 +2385,6 @@ class TimeSeriesGenerator:
     
         df.loc[:, 'data'] = series
         df.loc[:, 'stationary'] = 0
-        df.loc[:, 'det_exp'] = 1
         return df, info
 
     def generate_deterministic_trend_damped(self, df, sign=None, a=None, b=None, damping_rate=None, noise_std=None, scale_factor=1):
@@ -2412,7 +2401,6 @@ class TimeSeriesGenerator:
         info = {'type' : 'trend', 'subtype': 'deterministic_damped','damping_rate': damping_rate, 'a': a, 'b': b}
         df.loc[:, 'data'] = series
         df.loc[:,'stationary'] = 0
-        df.loc[:, 'det_damped'] = 1
         return df,info
 
     #TRENDS - STOCHASTIC TRENDS
@@ -3051,10 +3039,6 @@ class TimeSeriesGenerator:
         df.loc[:, "stationary"] = 0
         df.loc[:, "seasonal"] = 1
 
-        if kind == "single":
-            df.loc[:, "single_seas"] = 1
-        else:
-            df.loc[:, "multiple_seas"] = 1
 
         # =====================================================
         # METADATA
@@ -3159,8 +3143,7 @@ class TimeSeriesGenerator:
             "time":np.arange(n),
             "data":series,
             "stationary":np.zeros(n,dtype=int),
-            "seasonal":np.ones(n,dtype=int),
-            "single_seas":np.ones(n,dtype=int)})
+            "seasonal":np.ones(n,dtype=int)})
 
         # METADATA
 
@@ -3267,8 +3250,7 @@ class TimeSeriesGenerator:
             "time":np.arange(n),
             "data":series,
             "stationary":np.zeros(n,dtype=int),
-            "seasonal":np.ones(n,dtype=int),
-            "multiple_seas":np.ones(n,dtype=int)})
+            "seasonal":np.ones(n,dtype=int)})
 
         # METADATA
 
@@ -3549,10 +3531,8 @@ class TimeSeriesGenerator:
         df = pd.DataFrame({
             "time": np.arange(n),
             "data": series,
-            "stochastic_component": series.copy(),
-            "stationary": np.ones(n).astype(int),
-            "seasonal": np.ones(n).astype(int),
-            "sarma": np.ones(n).astype(int)
+            "stationary": np.zeros(n).astype(int),
+            "seasonal": np.ones(n).astype(int)
         })
 
         # =====================================================
@@ -3796,11 +3776,8 @@ class TimeSeriesGenerator:
         df = pd.DataFrame({
             "time": np.arange(n),
             "data":series,
-            "stationary_core": sarma_core,
-            "stochastic_component": stochastic_component,
             "stationary": np.zeros(n).astype(int),
-            "seasonal": np.ones(n).astype(int),
-            "sarima": np.ones(n).astype(int)})
+            "seasonal": np.ones(n).astype(int)})
 
 
         # METADATA

@@ -63,6 +63,7 @@ from betise.core.rules import (
     validate_requested_combination,
 )
 from betise.dataset_generation import (
+    final_stationarity_label,
     _patch_pyarrow_unregister_extension_type,
     _sample_value,
     apply_feature,
@@ -1294,11 +1295,16 @@ def generate_full_series(
     )
 
 
-    meta["is_stationary"] = (
-        int(df["stationary"].iloc[0])
-        if "stationary" in df.columns
-        else meta.get("is_stationary", 1)
+    base_stationary = (
+        int(df["stationary"].iloc[0]) if "stationary" in df.columns else 0
     )
+    final_stationary = final_stationarity_label(
+        base_components=rule_report.base_components,
+        feature_components=rule_report.feature_components,
+        base_stationary=base_stationary,
+    )
+    df["stationary"] = final_stationary
+    meta["is_stationary"] = final_stationary
 
     meta["is_seasonal"] = (
         int(df["seasonal"].iloc[0])
